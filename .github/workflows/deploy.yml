@@ -1,0 +1,40 @@
+name: Build Flutter Web & Deploy to Vercel
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Stáhni kód
+      - uses: actions/checkout@v4
+
+      # 2. Nainstaluj Flutter
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'
+          channel: 'stable'
+          cache: true
+
+      # 3. Stáhni závislosti
+      - run: flutter pub get
+
+      # 4. Buildni pro web
+      - run: |
+          flutter build web \
+            --release \
+            --dart-define=MAPBOX_TOKEN=${{ secrets.MAPBOX_TOKEN }}
+
+      # 5. Zkopíruj vercel.json do build výstupu
+      - run: cp vercel.json build/web/vercel.json
+
+      # 6. Deployin na Vercel
+      - uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
+          working-directory: build/web
