@@ -1,0 +1,56 @@
+name: sos_hned_partner
+description: SOS HNED Partner – aplikace pro partnery havarijního dispečinku.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # State management
+  flutter_riverpod: ^2.4.9
+  riverpod_annotation: ^2.3.3
+
+  # Supabase
+  supabase_flutter: ^2.3.4
+
+  # Auth
+  google_sign_in: ^6.2.1
+
+  # Routing
+  go_router: ^14.0.2
+
+  # UI helpers
+  flutter_animate: ^4.5.0
+  shimmer: ^3.0.0
+  cached_network_image: ^3.3.1
+  intl: ^0.19.0
+  timeago: ^3.6.1
+  url_launcher: ^6.2.4
+
+  # Map
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.0
+
+  # Local storage
+  shared_preferences: ^2.2.2
+
+  # Notifications (mobile only)
+  flutter_local_notifications: ^17.0.0
+
+  # Google Fonts (web-friendly, no local font files needed)
+  google_fonts: ^6.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  build_runner: ^2.4.8
+  riverpod_generator: ^2.3.9
+
+flutter:
+  uses-material-design: true

@@ -1,0 +1,256 @@
+import 'dart:async';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../models/models.dart';
+import '../config/app_config.dart';
+
+/// Služba pro komunikaci se Supabase databází.
+/// Handluje CRUD operace na tabulkách `partners` a `sos_requests`
+/// + realtime subscriptions.
+class SupabaseService {
+  SupabaseService._();
+  static final instance = SupabaseService._();
+
+  SupabaseClient get _client => Supabase.instance.client;
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  AUTH
+  // ═══════════════════════════════════════════════════════════════════
+
+  User? get currentUser => _client.auth.currentUser;
+  bool get isLoggedIn => currentUser != null;
+
+  Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
+
+  /// Přihlášení přes Google OAuth (Supabase provider)
+  Future<AuthResponse> signInWithGoogle() async {
+    return await _client.auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: 'io.supabase.soshned://login-callback/',
+    );
+  }
+
+  /// Odhlášení
+  Future<void> signOut() async {
+    await _client.auth.signOut();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  PARTNER PROFILE
+  // ═══════════════════════════════════════════════════════════════════
+
+  /// Získej profil přihlášeného partnera
+  Future<Partner?> getMyProfile() async {
+    final userId = currentUser?.id;
+    if (userId == null) return null;
+
+    final data = await _client
+        .from('partners')
+        .select()
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (data == null) return null;
+    return Partner.fromJson(data);
+  }
+
+  /// Vytvoř nový profil partnera (registrace)
+  Future<Partner> createPartnerProfile({
+    required String jmeno,
+    String? firma,
+    required String telefon,
+    required String email,
+    required String kategorie,
+    String? adresa,
+    double? lat,
+    double? lng,
+  }) async {
+    final userId = currentUser?.id;
+
+    final data = await _client.from('partners').insert({
+      'user_id': userId,
+      'jmeno': jmeno,
+      'firma': firma,
+      'telefon': telefon,
+      'email': email,
+      'kategorie': kategorie,
+      'adresa': adresa,
+      'lat': lat,
+      'lng': lng,
+      'zona': 'praha',
+      'is_online': false,
+    }).select().single();
+
+    return Partner.fromJson(data);
+  }
+
+  /// Aktualizuj profil partnera
+  Future<Partner> updatePartnerProfile(String partnerId, Map<String, dynamic> updates) async {
+    final data = await _client
+        .from('partners')
+        .update(updates)
+        .eq('id', partnerId)
+        .select()
+        .single();
+
+    return Partner.fromJson(data);
+  }
+
+  /// Přepni online/offline stav
+  Future<Partner> toggleOnline(String partnerId, bool isOnline) async {
+    return await updatePartnerProfile(partnerId, {'is_online': isOnline});
+  }
+
+  /// Aktualizuj polohu partnera
+  Future<void> updateLocation(String partnerId, double lat, double lng) async {
+    await _client.from('partners').update({
+      'lat': lat,
+      'lng': lng,
+    }).eq('id', partnerId);
+  }
+
+  /// Získej všechny online partnery (pro mapu)
+  Future<List<Partner>> getAllOnlinePartners() async {
+    final data = await _client
+        .from('partners')
+        .select()
+        .eq('is_online', true)
+        .not('lat', 'is', null)
+        .not('lng', 'is', null);
+
+    return (data as List).map((e) => Partner.fromJson(e)).toList();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  SOS REQUESTS
+  // ═══════════════════════════════════════════════════════════════════
+
+  /// Získej pending requesty pro moji kategorii
+  Future<List<SosRequest>> getPendingRequests(String kategorie) async {
+    final data = await _client
+        .from('sos_requests')
+        .select()
+        .eq('kategorie', kategorie)
+        .eq('status', AppConfig.statusPending)
+        .order('created_at', ascending: false);
+
+    return (data as List).map((e) => SosRequest.fromJson(e)).toList();
+  }
+
+  /// Získej moje přijaté requesty (accepted + in_progress)
+  Future<List<SosRequest>> getMyActiveRequests(String partnerId) async {
+    final data = await _client
+        .from('sos_requests')
+        .select()
+        .eq('accepted_by', partnerId)
+        .inFilter('status', [AppConfig.statusAccepted, AppConfig.statusInProgress])
+        .order('accepted_at', ascending: false);
+
+    return (data as List).map((e) => SosRequest.fromJson(e)).toList();
+  }
+
+  /// Získej historii dokončených requestů
+  Future<List<SosRequest>> getCompletedRequests(String partnerId) async {
+    final data = await _client
+        .from('sos_requests')
+        .select()
+        .eq('accepted_by', partnerId)
+        .eq('status', AppConfig.statusCompleted)
+        .order('completed_at', ascending: false)
+        .limit(50);
+
+    return (data as List).map((e) => SosRequest.fromJson(e)).toList();
+  }
+
+  /// Přijmi SOS request
+  Future<SosRequest> acceptRequest(String requestId, String partnerId) async {
+    final data = await _client
+        .from('sos_requests')
+        .update({
+          'status': AppConfig.statusAccepted,
+          'accepted_by': partnerId,
+          'accepted_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', requestId)
+        .eq('status', AppConfig.statusPending) // Jen pokud je stále pending (race condition)
+        .select()
+        .single();
+
+    return SosRequest.fromJson(data);
+  }
+
+  /// Označ request jako "na cestě"
+  Future<SosRequest> startRequest(String requestId) async {
+    final data = await _client
+        .from('sos_requests')
+        .update({'status': AppConfig.statusInProgress})
+        .eq('id', requestId)
+        .select()
+        .single();
+
+    return SosRequest.fromJson(data);
+  }
+
+  /// Dokonči request
+  Future<SosRequest> completeRequest(String requestId) async {
+    final data = await _client
+        .from('sos_requests')
+        .update({
+          'status': AppConfig.statusCompleted,
+          'completed_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', requestId)
+        .select()
+        .single();
+
+    return SosRequest.fromJson(data);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  REALTIME
+  // ═══════════════════════════════════════════════════════════════════
+
+  /// Poslouchej nové SOS requesty pro danou kategorii (realtime)
+  RealtimeChannel subscribeSosRequests({
+    required String kategorie,
+    required void Function(SosRequest) onInsert,
+    required void Function(SosRequest) onUpdate,
+  }) {
+    return _client
+        .channel('sos-requests-$kategorie')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'sos_requests',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'kategorie',
+            value: kategorie,
+          ),
+          callback: (payload) {
+            final request = SosRequest.fromJson(payload.newRecord);
+            onInsert(request);
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'sos_requests',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'kategorie',
+            value: kategorie,
+          ),
+          callback: (payload) {
+            final request = SosRequest.fromJson(payload.newRecord);
+            onUpdate(request);
+          },
+        )
+        .subscribe();
+  }
+
+  /// Odpoj realtime channel
+  void unsubscribeChannel(RealtimeChannel channel) {
+    _client.removeChannel(channel);
+  }
+}
