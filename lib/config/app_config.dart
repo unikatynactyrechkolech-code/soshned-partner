@@ -11,9 +11,8 @@ class AppConfig {
   // ── Supabase ──────────────────────────────────────────────────────
   static const supabaseUrl = 'https://ysyvbjzpoxpttoofjwfc.supabase.co';
 
-  // DŮLEŽITÉ: Nahraď tímto svým anon key ze Supabase dashboardu
-  // Settings → API → Project API keys → anon / public
-  static const supabaseAnonKey = 'YOUR_SUPABASE_ANON_KEY';
+  // Anon key ze Supabase dashboardu (Settings → API → anon / public)
+  static const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlzeXZianpwb3hwdHRvb2Zqd2ZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjA1MjMsImV4cCI6MjA5MDA5NjUyM30.ijbZQyEQZAAxhf2ikyW9CyrWJZA46gpCsoYzTuVlLXg';
 
   // ── Google Sign-In ────────────────────────────────────────────────
   // Web client ID z Google Cloud Console (pro Supabase OAuth)
