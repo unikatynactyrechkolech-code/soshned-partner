@@ -32,11 +32,11 @@ class AppConfig {
   // Public client token — can also be passed via --dart-define=MAPBOX_TOKEN
   static const _mapboxEnv = String.fromEnvironment('MAPBOX_TOKEN');
   // ignore: constant_identifier_names
-  static const _MB1 = 'pk.eyJ1Ijoib25kcmFiYXllciIsImEiOiJjbW42';
+  static const _MB1 = 'pk.eyJ1Ijoib25kcmFiYXllciIsImEiOiJjbW5hajFsMWowajYy';
   // ignore: constant_identifier_names
-  static const _MB2 = 'bGF0MXgwN29jMnJyMDN0MDJ6dGJtIn0';
+  static const _MB2 = 'MnByNnFyOWpueGVmIn0';
   // ignore: constant_identifier_names
-  static const _MB3 = '.R9GuTwVxpBnIE9Oem5sThw';
+  static const _MB3 = '.ee6-BYDslAc9e7ySviRCuw';
   static String get mapboxToken =>
       _mapboxEnv.isNotEmpty ? _mapboxEnv : '$_MB1$_MB2$_MB3';
 

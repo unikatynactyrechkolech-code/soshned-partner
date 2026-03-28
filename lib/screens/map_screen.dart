@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -8,12 +10,28 @@ import '../providers/auth_provider.dart';
 import '../services/supabase_service.dart';
 import '../config/app_config.dart';
 
-/// Mapa — partner vidí:
-///  1. Svoji polohu (modrý pin, může přetáhnout)
-///  2. Ostatní online partnery (zelené piny)
-///  3. Pending SOS požadavky ve své kategorii (červené piny)
-///
-/// Kliknutím na mapu může nastavit svoji polohu → uloží se do DB.
+// ═══════════════════════════════════════════════════════════════════════
+//  Mapbox Style URLs — prémiové styly (512 retina tiles)
+// ═══════════════════════════════════════════════════════════════════════
+
+class _MapboxStyles {
+  static String _url(String styleId) =>
+      'https://api.mapbox.com/styles/v1/mapbox/$styleId/tiles/512/{z}/{x}/{y}@2x?access_token=${AppConfig.mapboxToken}';
+
+  /// Premium světlý — Streets v12
+  static String get streets => _url('streets-v12');
+
+  /// Premium tmavý — Navigation Night v1
+  static String get navigationNight => _url('navigation-night-v1');
+
+  /// Satelit + popisky
+  static String get satelliteStreets => _url('satellite-streets-v12');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MapScreen
+// ═══════════════════════════════════════════════════════════════════════
+
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
 
@@ -21,34 +39,63 @@ class MapScreen extends ConsumerStatefulWidget {
   ConsumerState<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends ConsumerState<MapScreen> {
+class _MapScreenState extends ConsumerState<MapScreen>
+    with TickerProviderStateMixin {
   final MapController _mapController = MapController();
 
   List<Partner> _onlinePartners = [];
   List<SosRequest> _pendingRequests = [];
   bool _loading = true;
+  String? _error;
 
   LatLng? _myPosition;
   bool _savingPosition = false;
+  bool _placingPin = false;  // Režim umísťování špendlíku
+
+  Timer? _refreshTimer;
+
+  // Map style: 0=auto, 1=streets, 2=night, 3=satellite
+  int _styleIndex = 0;
+  static const _styleIcons = [
+    Icons.brightness_auto_rounded,
+    Icons.map_rounded,
+    Icons.dark_mode_rounded,
+    Icons.satellite_alt_rounded,
+  ];
 
   @override
   void initState() {
     super.initState();
     _loadMapData();
+    // Refresh every 15 seconds
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _refreshData(),
+    );
   }
 
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  // ── Data loading ──────────────────────────────────────────────────
+
   Future<void> _loadMapData() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
 
     try {
       final partner = ref.read(partnerProfileProvider).valueOrNull;
 
-      // Načti moji polohu z profilu
       if (partner != null && partner.lat != null && partner.lng != null) {
         _myPosition = LatLng(partner.lat!, partner.lng!);
       }
 
-      // Načti online partnery
       final partners = await SupabaseService.instance.getAllOnlinePartners();
       List<SosRequest> requests = [];
       if (partner != null) {
@@ -60,7 +107,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         setState(() {
           _onlinePartners = partners;
           _pendingRequests = requests;
-          _myPosition ??= const LatLng(50.0755, 14.4378); // Praha default
+          _myPosition ??= const LatLng(50.0755, 14.4378);
           _loading = false;
         });
       }
@@ -69,10 +116,31 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         setState(() {
           _myPosition ??= const LatLng(50.0755, 14.4378);
           _loading = false;
+          _error = e.toString();
         });
       }
     }
   }
+
+  Future<void> _refreshData() async {
+    try {
+      final partner = ref.read(partnerProfileProvider).valueOrNull;
+      final partners = await SupabaseService.instance.getAllOnlinePartners();
+      List<SosRequest> requests = [];
+      if (partner != null) {
+        requests = await SupabaseService.instance
+            .getPendingRequests(partner.kategorie);
+      }
+      if (mounted) {
+        setState(() {
+          _onlinePartners = partners;
+          _pendingRequests = requests;
+        });
+      }
+    } catch (_) {}
+  }
+
+  // ── Save my position ─────────────────────────────────────────────
 
   Future<void> _setMyPosition(LatLng position) async {
     final partner = ref.read(partnerProfileProvider).valueOrNull;
@@ -92,13 +160,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ref.invalidate(partnerProfileProvider);
 
       if (mounted) {
+        setState(() => _placingPin = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Row(
               children: [
                 Icon(Icons.check_circle, color: Colors.white, size: 18),
                 SizedBox(width: 8),
-                Text('📍 Poloha uložena do databáze'),
+                Text('📍 Poloha uložena — viditelná na všech mapách'),
               ],
             ),
             backgroundColor: const Color(0xFF22C55E),
@@ -113,8 +182,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Chyba při ukládání polohy: $e'),
+            content: Text('Chyba: $e'),
             backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
@@ -123,157 +195,371 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
+  // ── Tile URL ──────────────────────────────────────────────────────
+
+  String _getTileUrl(bool isDark) {
+    switch (_styleIndex) {
+      case 1:
+        return _MapboxStyles.streets;
+      case 2:
+        return _MapboxStyles.navigationNight;
+      case 3:
+        return _MapboxStyles.satelliteStreets;
+      default:
+        return isDark
+            ? _MapboxStyles.navigationNight
+            : _MapboxStyles.streets;
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════
+  //  BUILD
+  // ═════════════════════════════════════════════════════════════════
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final partner = ref.watch(partnerProfileProvider).valueOrNull;
+    final tileUrl = _getTileUrl(isDark);
+    final effectiveDark = _styleIndex == 2 ||
+        _styleIndex == 3 ||
+        (_styleIndex == 0 && isDark);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mapa'),
-        actions: [
-          if (_savingPosition)
-            const Padding(
-              padding: EdgeInsets.all(12),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded, size: 22),
-            onPressed: _loadMapData,
-            tooltip: 'Obnovit data',
-          ),
-          const SizedBox(width: 4),
-        ],
-      ),
       body: Stack(
         children: [
-          // ── Mapa ──────────────────────────────────────────────────
+          // ── MAP ───────────────────────────────────────────────────
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
               initialCenter:
-                  _myPosition ?? const LatLng(50.0755, 14.4378), // Praha
-              initialZoom: 13.5,
-              onTap: (tapPos, latLng) => _showSetPositionDialog(latLng),
+                  _myPosition ?? const LatLng(50.0755, 14.4378),
+              initialZoom: 14.0,
+              maxZoom: 19,
+              minZoom: 3,
+              onTap: (tapPos, latLng) {
+                if (_placingPin) {
+                  _showSetPositionDialog(latLng);
+                }
+              },
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all,
+              ),
             ),
             children: [
-              // Tile layer
+              // Mapbox Premium Tiles
               TileLayer(
-                urlTemplate: isDark
-                    ? 'https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/{z}/{x}/{y}@2x?access_token=${AppConfig.mapboxToken}'
-                    : 'https://api.mapbox.com/styles/v1/mapbox/light-v11/tiles/{z}/{x}/{y}@2x?access_token=${AppConfig.mapboxToken}',
+                urlTemplate: tileUrl,
                 userAgentPackageName: 'cz.soshned.partner',
                 maxZoom: 19,
+                tileSize: 512,
+                zoomOffset: -1,
               ),
 
-              // ── Moje poloha (modrý pin, draggable) ────────────
+              // My position (blue)
               if (_myPosition != null)
                 MarkerLayer(
                   markers: [
                     Marker(
                       point: _myPosition!,
-                      width: 55,
-                      height: 65,
-                      child: _MyPositionPin(
+                      width: 60,
+                      height: 72,
+                      child: _MyPositionMarker(
                         name: partner?.jmeno ?? '?',
-                        onDragEnd: _setMyPosition,
+                        kategorie: partner?.kategorie,
                       ),
                     ),
                   ],
                 ),
 
-              // ── Online partneři (zelené piny) ─────────────────
+              // Online partners (emerald)
               MarkerLayer(
                 markers: _onlinePartners
                     .where((p) =>
                         p.lat != null &&
                         p.lng != null &&
-                        p.id != partner?.id) // Neukázat sebe
+                        p.id != partner?.id)
                     .map((p) => Marker(
                           point: LatLng(p.lat!, p.lng!),
-                          width: 44,
-                          height: 54,
-                          child: _PartnerPin(partner: p),
+                          width: 52,
+                          height: 68,
+                          child: _PartnerMarker(
+                            partner: p,
+                            onTap: () => _showPartnerSheet(p),
+                          ),
                         ))
                     .toList(),
               ),
 
-              // ── SOS požadavky (červené piny) ──────────────────
+              // SOS requests (red)
               MarkerLayer(
                 markers: _pendingRequests
                     .map((r) => Marker(
                           point: LatLng(r.lat, r.lng),
-                          width: 50,
-                          height: 60,
-                          child: _SosRequestPin(request: r),
+                          width: 56,
+                          height: 68,
+                          child: _SosMarker(request: r),
                         ))
                     .toList(),
               ),
             ],
           ),
 
-          // ── Loading overlay ───────────────────────────────────────
-          if (_loading)
-            Container(
-              color: isDark
-                  ? Colors.black.withOpacity(0.5)
-                  : Colors.white.withOpacity(0.5),
-              child: const Center(child: CircularProgressIndicator()),
-            ),
-
-          // ── Legenda ───────────────────────────────────────────────
+          // ── TOP GRADIENT + CONTROLS ───────────────────────────────
           Positioned(
-            top: 12,
-            left: 12,
-            child: _MapLegend(
-              isDark: isDark,
-              partnerCount: _onlinePartners.length,
-              requestCount: _pendingRequests.length,
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: EdgeInsets.only(
+                top: MediaQuery.of(context).padding.top + 8,
+                left: 16,
+                right: 16,
+                bottom: 12,
+              ),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    (effectiveDark ? Colors.black : Colors.white)
+                        .withOpacity(0.85),
+                    (effectiveDark ? Colors.black : Colors.white)
+                        .withOpacity(0.0),
+                  ],
+                ),
+              ),
+              child: Row(
+                children: [
+                  // Title badge
+                  _GlassBadge(
+                    dark: effectiveDark,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.map_rounded,
+                            size: 16,
+                            color: effectiveDark
+                                ? Colors.white70
+                                : Colors.grey[800]),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Mapa',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            color: effectiveDark
+                                ? Colors.white
+                                : Colors.grey[900],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+
+                  // Online count
+                  _GlassBadge(
+                    dark: effectiveDark,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF22C55E),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '${_onlinePartners.length}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: effectiveDark
+                                ? Colors.white
+                                : Colors.grey[900],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  if (_pendingRequests.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    _GlassBadge(
+                      dark: effectiveDark,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.warning_amber_rounded,
+                              size: 13, color: Color(0xFFEF4444)),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${_pendingRequests.length}',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFFEF4444),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  if (_savingPosition) ...[
+                    const SizedBox(width: 6),
+                    const _GlassBadge(
+                      dark: true,
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFF3B82F6),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
 
-          // ── Instrukce ─────────────────────────────────────────────
-          if (_myPosition == null)
-            Positioned(
-              bottom: 100,
-              left: 20,
-              right: 20,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? const Color(0xFF1a1a2e)
-                      : Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.15),
-                      blurRadius: 20,
-                      offset: const Offset(0, 4),
+          // ── LOADING ───────────────────────────────────────────────
+          if (_loading)
+            Container(
+              color: (effectiveDark ? Colors.black : Colors.white)
+                  .withOpacity(0.6),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircularProgressIndicator(color: Color(0xFFEF4444)),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Načítám mapu…',
+                      style: TextStyle(
+                        color: effectiveDark ? Colors.white54 : Colors.grey,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
+                ),
+              ),
+            ),
+
+          // ── ERROR ─────────────────────────────────────────────────
+          if (_error != null && !_loading)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 70,
+              left: 16,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444).withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(
-                    color: const Color(0xFF3B82F6).withOpacity(0.3),
-                  ),
+                    color: const Color(0xFFEF4444).withOpacity(0.3)),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.touch_app_rounded,
-                        color: Color(0xFF3B82F6), size: 24),
-                    const SizedBox(width: 12),
+                    const Icon(Icons.error_outline,
+                        color: Color(0xFFEF4444), size: 18),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Klikni na mapu pro nastavení svojí polohy',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: isDark ? Colors.white70 : Colors.grey[800],
+                        'Chyba: $_error',
+                        style: const TextStyle(
+                            color: Color(0xFFEF4444), fontSize: 12),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close,
+                          color: Color(0xFFEF4444), size: 16),
+                      onPressed: () => setState(() => _error = null),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // ── PLACING PIN INSTRUCTION ─────────────────────────────────
+          if (_placingPin && !_loading)
+            Positioned(
+              bottom: 120,
+              left: 20,
+              right: 20,
+              child: _GlassCard(
+                dark: effectiveDark,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF3B82F6).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(Icons.touch_app_rounded,
+                              color: Color(0xFF3B82F6), size: 24),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '👆 Klepněte na mapu',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: effectiveDark
+                                      ? Colors.white
+                                      : Colors.grey[900],
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Klepněte kamkoliv na mapu pro umístění vašeho špendlíku.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: effectiveDark
+                                      ? Colors.white54
+                                      : Colors.grey[600],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => setState(() => _placingPin = false),
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        label: const Text('Zrušit umísťování'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFEF4444),
+                          side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                       ),
                     ),
@@ -282,42 +568,225 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
             ),
 
-          // ── FAB: Přidat pin (centovat na Prahu) ───────────────────
+          // ── SET PIN FAB BUTTON ────────────────────────────────────────
+          if (!_placingPin && !_loading)
+            Positioned(
+              bottom: 32,
+              left: 14,
+              right: 80,
+              child: GestureDetector(
+                onTap: () => setState(() => _placingPin = true),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF3B82F6), Color(0xFF2563EB)],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF3B82F6).withOpacity(0.4),
+                        blurRadius: 20,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.add_location_alt_rounded,
+                          color: Colors.white, size: 22),
+                      const SizedBox(width: 10),
+                      Text(
+                        _myPosition != null
+                            ? 'Změnit moji polohu'
+                            : 'Nastavit moji polohu',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+          // ── RIGHT CONTROLS ────────────────────────────────────────
           Positioned(
-            bottom: 24,
-            right: 16,
+            bottom: 32,
+            right: 14,
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                // Centrovat na sebe
+                _MapFab(
+                  dark: effectiveDark,
+                  icon: _styleIcons[_styleIndex],
+                  onTap: () =>
+                      setState(() => _styleIndex = (_styleIndex + 1) % 4),
+                ),
+                const SizedBox(height: 8),
                 if (_myPosition != null)
-                  FloatingActionButton.small(
-                    heroTag: 'center',
-                    onPressed: () {
-                      _mapController.move(_myPosition!, 15);
-                    },
-                    backgroundColor:
-                        isDark ? const Color(0xFF1a1a2e) : Colors.white,
-                    child: const Icon(Icons.my_location_rounded,
-                        color: Color(0xFF3B82F6), size: 20),
+                  _MapFab(
+                    dark: effectiveDark,
+                    icon: Icons.my_location_rounded,
+                    onTap: () => _mapController.move(_myPosition!, 15),
                   ),
                 const SizedBox(height: 8),
-                // Refresh
-                FloatingActionButton.small(
-                  heroTag: 'refresh',
-                  onPressed: _loadMapData,
-                  backgroundColor:
-                      isDark ? const Color(0xFF1a1a2e) : Colors.white,
-                  child: Icon(Icons.refresh_rounded,
-                      color: isDark ? Colors.white70 : Colors.grey[700],
-                      size: 20),
+                _MapFab(
+                  dark: effectiveDark,
+                  icon: Icons.refresh_rounded,
+                  onTap: _loadMapData,
                 ),
               ],
             ),
           ),
+
+          // ── LEGEND (bottom left) ──────────────────────────────────
+          Positioned(
+            bottom: 32,
+            left: 14,
+            child: _GlassCard(
+              dark: effectiveDark,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _LegendDot(
+                      color: const Color(0xFF3B82F6),
+                      label: 'Moje poloha',
+                      dark: effectiveDark),
+                  const SizedBox(height: 5),
+                  _LegendDot(
+                      color: const Color(0xFF22C55E),
+                      label: 'Online (${_onlinePartners.length})',
+                      dark: effectiveDark),
+                  const SizedBox(height: 5),
+                  _LegendDot(
+                      color: const Color(0xFFEF4444),
+                      label: 'SOS (${_pendingRequests.length})',
+                      dark: effectiveDark),
+                ],
+              ),
+            ),
+          ),
+
+          // ── MY INFO CARD ──────────────────────────────────────────
+          if (partner != null && !_loading && !_placingPin)
+            Positioned(
+              bottom: 140,
+              left: 14,
+              right: 80,
+              child: _GlassCard(
+                dark: effectiveDark,
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF3B82F6).withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Center(
+                        child: Text(
+                          partner.jmeno.isNotEmpty
+                              ? partner.jmeno[0].toUpperCase()
+                              : '?',
+                          style: const TextStyle(
+                            color: Color(0xFF3B82F6),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            partner.jmeno,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: effectiveDark
+                                  ? Colors.white
+                                  : Colors.grey[900],
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            [
+                              partner.kategorieLabel,
+                              if (partner.firma != null &&
+                                  partner.firma!.isNotEmpty)
+                                partner.firma,
+                            ].join(' · '),
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: effectiveDark
+                                  ? Colors.white38
+                                  : Colors.grey[500],
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: partner.isOnline
+                            ? const Color(0xFF22C55E).withOpacity(0.15)
+                            : Colors.grey.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: partner.isOnline
+                                  ? const Color(0xFF22C55E)
+                                  : Colors.grey,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            partner.isOnline ? 'Online' : 'Offline',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: partner.isOnline
+                                  ? const Color(0xFF22C55E)
+                                  : Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
+
+  // ── Position dialog ───────────────────────────────────────────────
 
   void _showSetPositionDialog(LatLng position) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -329,7 +798,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF0c0c14) : Colors.white,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -343,9 +813,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            const Icon(Icons.location_on_rounded,
-                size: 48, color: Color(0xFF3B82F6)),
-            const SizedBox(height: 12),
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: const Color(0xFF3B82F6).withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.location_on_rounded,
+                  size: 32, color: Color(0xFF3B82F6)),
+            ),
+            const SizedBox(height: 14),
             Text(
               'Nastavit polohu zde?',
               style: TextStyle(
@@ -355,20 +833,32 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
             ),
             const SizedBox(height: 6),
-            Text(
-              '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}',
-              style: TextStyle(
-                fontSize: 13,
-                color: isDark ? Colors.white38 : Colors.grey[500],
-                fontFamily: 'monospace',
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withOpacity(0.05)
+                    : Colors.grey[100],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isDark ? Colors.white38 : Colors.grey[500],
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Text(
-              'Tato poloha se uloží do databáze a bude viditelná zákazníkům na mapě.',
+              'Poloha se uloží do databáze a bude viditelná\nzákazníkům v klientské aplikaci.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,
+                height: 1.5,
                 color: isDark ? Colors.white24 : Colors.grey[400],
               ),
             ),
@@ -388,17 +878,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: ElevatedButton(
+                  child: ElevatedButton.icon(
                     onPressed: () {
                       Navigator.pop(ctx);
                       _setMyPosition(position);
                     },
+                    icon: const Icon(Icons.check_rounded, size: 18),
+                    label: const Text('Potvrdit'),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14)),
                     ),
-                    child: const Text('Potvrdit'),
                   ),
                 ),
               ],
@@ -409,102 +900,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ),
     );
   }
-}
 
-// ═══════════════════════════════════════════════════════════════════
-//  Pin widgety
-// ═══════════════════════════════════════════════════════════════════
+  // ── Partner detail sheet ──────────────────────────────────────────
 
-/// Modrý pin — moje poloha
-class _MyPositionPin extends StatelessWidget {
-  final String name;
-  final void Function(LatLng)? onDragEnd;
-
-  const _MyPositionPin({required this.name, this.onDragEnd});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: const Color(0xFF3B82F6),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF3B82F6).withOpacity(0.5),
-                blurRadius: 16,
-                offset: const Offset(0, 4),
-              ),
-            ],
-            border: Border.all(color: Colors.white, width: 3),
-          ),
-          child: Center(
-            child: Text(
-              name.isNotEmpty ? name[0].toUpperCase() : '?',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
-                fontSize: 16,
-              ),
-            ),
-          ),
-        ),
-        // Šipka dolů
-        CustomPaint(
-          size: const Size(12, 8),
-          painter: _TrianglePainter(color: const Color(0xFF3B82F6)),
-        ),
-      ],
-    );
-  }
-}
-
-/// Zelený pin — online partner
-class _PartnerPin extends StatelessWidget {
-  final Partner partner;
-
-  const _PartnerPin({required this.partner});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => _showPartnerInfo(context),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: const Color(0xFF22C55E),
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF22C55E).withOpacity(0.4),
-                  blurRadius: 12,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-              border: Border.all(color: Colors.white, width: 2.5),
-            ),
-            child: Center(
-              child: _categoryIcon(partner.kategorie),
-            ),
-          ),
-          CustomPaint(
-            size: const Size(10, 6),
-            painter: _TrianglePainter(color: const Color(0xFF22C55E)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showPartnerInfo(BuildContext context) {
+  void _showPartnerSheet(Partner p) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     showModalBottomSheet(
@@ -514,7 +913,8 @@ class _PartnerPin extends StatelessWidget {
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF0c0c14) : Colors.white,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -530,18 +930,21 @@ class _PartnerPin extends StatelessWidget {
             const SizedBox(height: 20),
             // Avatar
             Container(
-              width: 56,
-              height: 56,
+              width: 60,
+              height: 60,
               decoration: BoxDecoration(
-                color: const Color(0xFF22C55E).withOpacity(0.15),
+                gradient: LinearGradient(colors: [
+                  const Color(0xFF22C55E).withOpacity(0.2),
+                  const Color(0xFF22C55E).withOpacity(0.05),
+                ]),
                 shape: BoxShape.circle,
               ),
               child: Center(
                 child: Text(
-                  partner.jmeno.isNotEmpty ? partner.jmeno[0].toUpperCase() : '?',
+                  p.jmeno.isNotEmpty ? p.jmeno[0].toUpperCase() : '?',
                   style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w800,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
                     color: Color(0xFF22C55E),
                   ),
                 ),
@@ -549,92 +952,126 @@ class _PartnerPin extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              partner.jmeno,
+              p.jmeno,
               style: TextStyle(
-                fontSize: 18,
+                fontSize: 20,
                 fontWeight: FontWeight.w800,
                 color: isDark ? Colors.white : Colors.grey[900],
               ),
             ),
-            if (partner.firma != null && partner.firma!.isNotEmpty) ...[
+            if (p.firma != null && p.firma!.isNotEmpty) ...[
               const SizedBox(height: 2),
-              Text(
-                partner.firma!,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: isDark ? Colors.white38 : Colors.grey[500],
-                ),
-              ),
+              Text(p.firma!,
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: isDark ? Colors.white38 : Colors.grey[500])),
             ],
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
+            // Category badge
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
               decoration: BoxDecoration(
                 color: const Color(0xFF22C55E).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: const Color(0xFF22C55E).withOpacity(0.2),
-                ),
+                    color: const Color(0xFF22C55E).withOpacity(0.2)),
               ),
-              child: Text(
-                partner.kategorieLabel,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF22C55E),
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _categoryIcon(p.kategorie),
+                  const SizedBox(width: 6),
+                  Text(
+                    p.kategorieLabel,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF22C55E),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            // Info
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withOpacity(0.04)
+                    : Colors.grey[50],
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Column(
+                children: [
+                  _infoRow(Icons.star_rounded, const Color(0xFFF59E0B),
+                      '${p.hodnoceni.toStringAsFixed(1)} (${p.pocetRecenzi} recenzí)', isDark),
+                  const SizedBox(height: 8),
+                  _infoRow(Icons.phone_outlined, const Color(0xFF3B82F6),
+                      p.telefon, isDark),
+                  const SizedBox(height: 8),
+                  _infoRow(Icons.email_outlined, const Color(0xFF8B5CF6),
+                      p.email, isDark),
+                  if (p.adresa != null && p.adresa!.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _infoRow(Icons.location_on_outlined,
+                        const Color(0xFFEF4444), p.adresa!, isDark),
+                  ],
+                  const SizedBox(height: 8),
+                  _infoRow(
+                      Icons.pin_drop_outlined,
+                      Colors.grey,
+                      '${p.lat?.toStringAsFixed(4) ?? '?'}, ${p.lng?.toStringAsFixed(4) ?? '?'}',
+                      isDark),
+                ],
               ),
             ),
             const SizedBox(height: 12),
-            // Stats
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.star_rounded,
-                    color: Color(0xFFF59E0B), size: 16),
-                const SizedBox(width: 4),
-                Text(
-                  partner.hodnoceni.toStringAsFixed(1),
+            // IDs (small, visible)
+            Text('ID: ${p.id}',
+                style: TextStyle(
+                    fontSize: 9,
+                    color: isDark ? Colors.white12 : Colors.grey[300],
+                    fontFamily: 'monospace')),
+            if (p.userId != null)
+              Text('User: ${p.userId}',
                   style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: isDark ? Colors.white : Colors.grey[900],
-                  ),
-                ),
-                Text(
-                  ' (${partner.pocetRecenzi} recenzí)',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? Colors.white30 : Colors.grey[400],
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Icon(Icons.location_on_rounded,
-                    color: isDark ? Colors.white30 : Colors.grey[400],
-                    size: 14),
-                const SizedBox(width: 2),
-                Text(
-                  partner.zona,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isDark ? Colors.white38 : Colors.grey[500],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
+                      fontSize: 9,
+                      color: isDark ? Colors.white12 : Colors.grey[300],
+                      fontFamily: 'monospace')),
+            const SizedBox(height: 8),
           ],
         ),
       ),
     );
   }
+
+  Widget _infoRow(IconData icon, Color color, String text, bool isDark) {
+    return Row(
+      children: [
+        Icon(icon, size: 15, color: color),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(text,
+              style: TextStyle(
+                  fontSize: 13,
+                  color: isDark ? Colors.white70 : Colors.grey[800])),
+        ),
+      ],
+    );
+  }
 }
 
-/// Červený pulsující pin — SOS požadavek
-class _SosRequestPin extends StatelessWidget {
-  final SosRequest request;
+// ═══════════════════════════════════════════════════════════════════════
+//  MARKER WIDGETS
+// ═══════════════════════════════════════════════════════════════════════
 
-  const _SosRequestPin({required this.request});
+class _MyPositionMarker extends StatelessWidget {
+  final String name;
+  final String? kategorie;
+
+  const _MyPositionMarker({required this.name, this.kategorie});
 
   @override
   Widget build(BuildContext context) {
@@ -642,101 +1079,337 @@ class _SosRequestPin extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 42,
-          height: 42,
+          width: 48,
+          height: 48,
           decoration: BoxDecoration(
-            color: const Color(0xFFEF4444),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF3B82F6), Color(0xFF2563EB)],
+            ),
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFFEF4444).withOpacity(0.5),
+                color: const Color(0xFF3B82F6).withOpacity(0.5),
                 blurRadius: 20,
-                spreadRadius: 4,
-                offset: const Offset(0, 2),
+                spreadRadius: 2,
               ),
             ],
             border: Border.all(color: Colors.white, width: 3),
           ),
-          child: const Center(
-            child: Icon(Icons.warning_amber_rounded,
-                color: Colors.white, size: 20),
+          child: Center(
+            child: kategorie != null
+                ? _categoryIcon(kategorie!)
+                : Text(
+                    name.isNotEmpty ? name[0].toUpperCase() : '?',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 17,
+                    ),
+                  ),
           ),
         ),
         CustomPaint(
-          size: const Size(12, 8),
-          painter: _TrianglePainter(color: const Color(0xFFEF4444)),
+          size: const Size(14, 9),
+          painter: _ArrowPainter(color: const Color(0xFF2563EB)),
+        ),
+        Container(
+          margin: const EdgeInsets.only(top: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2563EB).withOpacity(0.9),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: const Text(
+            'Vy',
+            style: TextStyle(
+              fontSize: 8,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+              letterSpacing: 0.5,
+            ),
+          ),
         ),
       ],
     );
   }
 }
 
-/// Legenda
-class _MapLegend extends StatelessWidget {
-  final bool isDark;
-  final int partnerCount;
-  final int requestCount;
+class _PartnerMarker extends StatelessWidget {
+  final Partner partner;
+  final VoidCallback onTap;
 
-  const _MapLegend({
-    required this.isDark,
-    required this.partnerCount,
-    required this.requestCount,
+  const _PartnerMarker({required this.partner, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF22C55E), Color(0xFF16A34A)],
+              ),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF22C55E).withOpacity(0.45),
+                  blurRadius: 14,
+                  spreadRadius: 1,
+                ),
+              ],
+              border: Border.all(color: Colors.white, width: 2.5),
+            ),
+            child: Center(child: _categoryIcon(partner.kategorie)),
+          ),
+          CustomPaint(
+            size: const Size(12, 7),
+            painter: _ArrowPainter(color: const Color(0xFF16A34A)),
+          ),
+          Container(
+            margin: const EdgeInsets.only(top: 1),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+            decoration: BoxDecoration(
+              color: const Color(0xFF16A34A).withOpacity(0.85),
+              borderRadius: BorderRadius.circular(5),
+            ),
+            child: Text(
+              partner.jmeno.split(' ').first,
+              style: const TextStyle(
+                fontSize: 7,
+                fontWeight: FontWeight.w800,
+                color: Colors.white,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SosMarker extends StatelessWidget {
+  final SosRequest request;
+
+  const _SosMarker({required this.request});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: const Color(0xFFEF4444).withOpacity(0.3),
+              width: 3,
+            ),
+          ),
+          child: Center(
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFFEF4444), Color(0xFFDC2626)],
+                ),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFEF4444).withOpacity(0.6),
+                    blurRadius: 20,
+                    spreadRadius: 4,
+                  ),
+                ],
+                border: Border.all(color: Colors.white, width: 2.5),
+              ),
+              child: const Center(
+                child: Icon(Icons.warning_amber_rounded,
+                    color: Colors.white, size: 18),
+              ),
+            ),
+          ),
+        ),
+        CustomPaint(
+          size: const Size(12, 8),
+          painter: _ArrowPainter(color: const Color(0xFFDC2626)),
+        ),
+        Container(
+          margin: const EdgeInsets.only(top: 1),
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+          decoration: BoxDecoration(
+            color: const Color(0xFFDC2626).withOpacity(0.9),
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: const Text(
+            'SOS',
+            style: TextStyle(
+              fontSize: 8,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+              letterSpacing: 1,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HELPER WIDGETS
+// ═══════════════════════════════════════════════════════════════════════
+
+class _GlassBadge extends StatelessWidget {
+  final bool dark;
+  final Widget child;
+
+  const _GlassBadge({required this.dark, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: dark
+            ? Colors.black.withOpacity(0.5)
+            : Colors.white.withOpacity(0.85),
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.08), blurRadius: 8),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class _GlassCard extends StatelessWidget {
+  final bool dark;
+  final Widget child;
+  final EdgeInsets padding;
+
+  const _GlassCard({
+    required this.dark,
+    required this.child,
+    this.padding = const EdgeInsets.all(14),
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: padding,
       decoration: BoxDecoration(
-        color: isDark
-            ? const Color(0xFF0c0c14).withOpacity(0.9)
+        color: dark
+            ? Colors.black.withOpacity(0.55)
             : Colors.white.withOpacity(0.9),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 12,
-          ),
+              color: Colors.black.withOpacity(0.1), blurRadius: 16),
         ],
         border: Border.all(
-          color: isDark ? Colors.white.withOpacity(0.06) : Colors.grey[200]!,
+          color: dark
+              ? Colors.white.withOpacity(0.06)
+              : Colors.grey.withOpacity(0.15),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _legendItem(const Color(0xFF3B82F6), 'Moje poloha'),
-          const SizedBox(height: 6),
-          _legendItem(const Color(0xFF22C55E),
-              'Online partneři ($partnerCount)'),
-          const SizedBox(height: 6),
-          _legendItem(const Color(0xFFEF4444),
-              'SOS požadavky ($requestCount)'),
-        ],
+      child: child,
+    );
+  }
+}
+
+class _MapFab extends StatelessWidget {
+  final bool dark;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _MapFab({
+    required this.dark,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: dark
+              ? Colors.black.withOpacity(0.6)
+              : Colors.white.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withOpacity(0.12), blurRadius: 12),
+          ],
+          border: Border.all(
+            color: dark
+                ? Colors.white.withOpacity(0.06)
+                : Colors.grey.withOpacity(0.15),
+          ),
+        ),
+        child: Icon(icon,
+            size: 20,
+            color: dark ? Colors.white70 : Colors.grey[700]),
       ),
     );
   }
+}
 
-  Widget _legendItem(Color color, String text) {
+class _LegendDot extends StatelessWidget {
+  final Color color;
+  final String label;
+  final bool dark;
+
+  const _LegendDot({
+    required this.color,
+    required this.label,
+    required this.dark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 10,
-          height: 10,
+          width: 8,
+          height: 8,
           decoration: BoxDecoration(
             color: color,
             shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(color: color.withOpacity(0.4), blurRadius: 4),
+            ],
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 7),
         Text(
-          text,
+          label,
           style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: isDark ? Colors.white60 : Colors.grey[700],
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: dark ? Colors.white60 : Colors.grey[700],
           ),
         ),
       ],
@@ -744,10 +1417,9 @@ class _MapLegend extends StatelessWidget {
   }
 }
 
-/// Trojúhelník pod pinem (šipka)
-class _TrianglePainter extends CustomPainter {
+class _ArrowPainter extends CustomPainter {
   final Color color;
-  _TrianglePainter({required this.color});
+  _ArrowPainter({required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -764,22 +1436,17 @@ class _TrianglePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-/// Ikona podle kategorie
 Widget _categoryIcon(String kategorie) {
   IconData icon;
   switch (kategorie) {
     case 'zamecnik':
       icon = Icons.key_rounded;
-      break;
     case 'odtahovka':
       icon = Icons.local_shipping_rounded;
-      break;
     case 'servis':
       icon = Icons.build_rounded;
-      break;
     case 'instalater':
       icon = Icons.water_drop_rounded;
-      break;
     default:
       icon = Icons.handyman_rounded;
   }

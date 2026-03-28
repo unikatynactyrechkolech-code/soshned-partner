@@ -128,12 +128,33 @@ class SupabaseService {
     return await updatePartnerProfile(partnerId, {'is_online': isOnline});
   }
 
-  /// Aktualizuj polohu partnera
+  /// Aktualizuj polohu partnera (+ last_seen_at pokud sloupec existuje)
   Future<void> updateLocation(String partnerId, double lat, double lng) async {
-    await _client.from('partners').update({
-      'lat': lat,
-      'lng': lng,
-    }).eq('id', partnerId);
+    // Nejdřív zkusíme s last_seen_at, pokud selže (sloupec neexistuje),
+    // uložíme jen lat/lng.
+    try {
+      await _client.from('partners').update({
+        'lat': lat,
+        'lng': lng,
+        'last_seen_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', partnerId);
+    } catch (_) {
+      await _client.from('partners').update({
+        'lat': lat,
+        'lng': lng,
+      }).eq('id', partnerId);
+    }
+  }
+
+  /// Získej VŠECHNY partnery s polohou (pro mapu — i offline, klient vidí všechny)
+  Future<List<Partner>> getAllPartnersWithLocation() async {
+    final data = await _client
+        .from('partners')
+        .select()
+        .not('lat', 'is', null)
+        .not('lng', 'is', null);
+
+    return (data as List).map((e) => Partner.fromJson(e)).toList();
   }
 
   /// Získej všechny online partnery (pro mapu)
@@ -272,6 +293,27 @@ class SupabaseService {
             final request = SosRequest.fromJson(payload.newRecord);
             onUpdate(request);
           },
+        )
+        .subscribe();
+  }
+
+  /// Poslouchej změny v tabulce partners (INSERT + UPDATE) — pro realtime mapu
+  RealtimeChannel subscribePartnerChanges({
+    required void Function(Map<String, dynamic>) onPartnerChange,
+  }) {
+    return _client
+        .channel('partners-changes')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'partners',
+          callback: (payload) => onPartnerChange(payload.newRecord),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'partners',
+          callback: (payload) => onPartnerChange(payload.newRecord),
         )
         .subscribe();
   }
