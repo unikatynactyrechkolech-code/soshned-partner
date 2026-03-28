@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../services/supabase_service.dart';
+import '../providers/auth_provider.dart';
 import '../screens/login_screen.dart';
 import '../screens/register_screen.dart';
+import '../screens/complete_profile_screen.dart';
 import '../screens/dashboard_screen.dart';
 import '../screens/map_screen.dart';
 import '../screens/request_detail_screen.dart';
@@ -12,16 +14,53 @@ import '../screens/profile_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/history_screen.dart';
 
+/// Notifier that triggers GoRouter refresh when auth/profile state changes
+class _RouterRefreshNotifier extends ChangeNotifier {
+  _RouterRefreshNotifier(Ref ref) {
+    ref.listen(partnerProfileProvider, (_, __) => notifyListeners());
+    ref.listen(authStateProvider, (_, __) => notifyListeners());
+  }
+}
+
 final appRouterProvider = Provider<GoRouter>((ref) {
+  final refreshNotifier = _RouterRefreshNotifier(ref);
+
   return GoRouter(
     initialLocation: '/',
+    refreshListenable: refreshNotifier,
     redirect: (context, state) {
       final isLoggedIn = SupabaseService.instance.isLoggedIn;
-      final isAuthRoute = state.matchedLocation == '/login' ||
-          state.matchedLocation == '/register';
+      final location = state.matchedLocation;
+      final isAuthRoute = location == '/login' || location == '/register';
+      final isCompleteProfile = location == '/complete-profile';
 
+      // Not logged in → go to login (unless already on auth route)
       if (!isLoggedIn && !isAuthRoute) return '/login';
-      if (isLoggedIn && isAuthRoute) return '/';
+
+      // Read the profile state (may be loading, data, or error)
+      final profileAsync = ref.read(partnerProfileProvider);
+
+      // Logged in on auth route → redirect away
+      if (isLoggedIn && isAuthRoute) {
+        if (profileAsync.isLoading) return '/'; // Will re-redirect when profile loads
+        final profile = profileAsync.valueOrNull;
+        if (profile == null) return '/complete-profile';
+        return '/';
+      }
+
+      // Logged in, trying to access app routes → check profile exists
+      if (isLoggedIn && !isCompleteProfile && !isAuthRoute) {
+        if (profileAsync.isLoading) return null; // Wait for profile to load
+        final profile = profileAsync.valueOrNull;
+        if (profile == null) return '/complete-profile';
+      }
+
+      // On complete-profile but already has profile → go to dashboard
+      if (isLoggedIn && isCompleteProfile) {
+        if (profileAsync.isLoading) return null;
+        final profile = profileAsync.valueOrNull;
+        if (profile != null) return '/';
+      }
 
       return null;
     },
@@ -34,6 +73,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/register',
         builder: (context, state) => const RegisterScreen(),
+      ),
+
+      // ── Profile Completion (after Google OAuth) ───────────────
+      GoRoute(
+        path: '/complete-profile',
+        builder: (context, state) => const CompleteProfileScreen(),
       ),
 
       // ── Main (with bottom nav shell) ──────────────────────────

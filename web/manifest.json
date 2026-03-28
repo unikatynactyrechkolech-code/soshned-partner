@@ -4,7 +4,7 @@
     "start_url": "/",
     "scope": "/",
     "display": "standalone",
-    "background_color": "#0a0a14",
+    "background_color": "#FFFFFF",
     "theme_color": "#ef4444",
     "description": "SOS HNED Partner – dashboard pro partnery havarijního dispečinku. Přijímejte SOS požadavky, sledujte mapu a spravujte výjezdy.",
     "orientation": "portrait-primary",
