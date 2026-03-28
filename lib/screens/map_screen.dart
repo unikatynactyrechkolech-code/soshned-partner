@@ -1,8 +1,7 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:latlong2/latlong.dart' hide Path;
 
 import '../models/models.dart';
 import '../providers/auth_provider.dart';
@@ -51,7 +50,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
       // Načti online partnery
       final partners = await SupabaseService.instance.getAllOnlinePartners();
-      // Načti pending requesty pro moji kategorii
       List<SosRequest> requests = [];
       if (partner != null) {
         requests = await SupabaseService.instance
@@ -62,11 +60,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         setState(() {
           _onlinePartners = partners;
           _pendingRequests = requests;
+          _myPosition ??= const LatLng(50.0755, 14.4378); // Praha default
           _loading = false;
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _myPosition ??= const LatLng(50.0755, 14.4378);
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -90,8 +94,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Row(
-              children: const [
+            content: const Row(
+              children: [
                 Icon(Icons.check_circle, color: Colors.white, size: 18),
                 SizedBox(width: 8),
                 Text('📍 Poloha uložena do databáze'),
@@ -293,8 +297,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     },
                     backgroundColor:
                         isDark ? const Color(0xFF1a1a2e) : Colors.white,
-                    child: Icon(Icons.my_location_rounded,
-                        color: const Color(0xFF3B82F6), size: 20),
+                    child: const Icon(Icons.my_location_rounded,
+                        color: Color(0xFF3B82F6), size: 20),
                   ),
                 const SizedBox(height: 8),
                 // Refresh
@@ -339,8 +343,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            Icon(Icons.location_on_rounded,
-                size: 48, color: const Color(0xFF3B82F6)),
+            const Icon(Icons.location_on_rounded,
+                size: 48, color: Color(0xFF3B82F6)),
             const SizedBox(height: 12),
             Text(
               'Nastavit polohu zde?',

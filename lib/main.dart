@@ -13,13 +13,14 @@ Future<void> main() async {
   // System UI (only on mobile platforms)
   if (!kIsWeb) {
     SystemChrome.setSystemUIOverlayStyle(
-      const SystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.dark,
-        systemNavigationBarColor: Colors.white,
+        systemNavigationBarColor: Colors.transparent,
         systemNavigationBarIconBrightness: Brightness.dark,
       ),
     );
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
     await SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,

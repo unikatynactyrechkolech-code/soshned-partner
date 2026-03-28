@@ -1,27 +1,74 @@
 <!DOCTYPE html>
-<html>
+<html lang="cs">
 <head>
   <base href="$FLUTTER_BASE_HREF">
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="SOS HNED Partner – dashboard pro partnery havarijního dispečinku">
+  <meta name="description" content="SOS HNED Partner – dashboard pro partnery havarijního dispečinku. Přijímejte SOS požadavky v reálném čase.">
+  
+  <!-- PWA -->
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="SOS Partner">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <link rel="icon" type="image/png" href="icons/Icon-192.png">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#ef4444">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  
+  <!-- Icons -->
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/Icon-192.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="icons/Icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="icons/Icon-512.png">
+  
+  <!-- Manifest -->
   <link rel="manifest" href="manifest.json">
+  
+  <!-- Open Graph -->
+  <meta property="og:title" content="SOS HNED Partner">
+  <meta property="og:description" content="Dashboard pro partnery havarijního dispečinku SOS HNED">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="icons/Icon-512.png">
 
   <title>SOS HNED Partner</title>
 
   <style>
+    /* Fullscreen – no black bars */
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      overflow: hidden;
+      background: #0a0a14;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+    }
+    /* Make Flutter canvas fill the entire viewport */
+    flt-glass-pane {
+      width: 100% !important;
+      height: 100% !important;
+      height: 100dvh !important;
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+    }
     /* Loading indicator */
     .loading {
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 100vh;
+      height: 100%;
+      min-height: 100vh;
+      min-height: 100dvh;
       background: #0a0a14;
       flex-direction: column;
       gap: 16px;

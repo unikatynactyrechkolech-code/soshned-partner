@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/models.dart';
@@ -22,11 +23,37 @@ class SupabaseService {
 
   Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
 
-  /// Přihlášení přes Google OAuth (Supabase provider)
-  Future<AuthResponse> signInWithGoogle() async {
+  /// Přihlášení přes Google OAuth (Supabase provider).
+  /// Na webu VŽDY přesměruje na produkční URL (musí být v Supabase Redirect URLs).
+  /// Na mobilu na deep link.
+  Future<bool> signInWithGoogle() async {
+    // Redirect URL musí být whitelistovaná v Supabase Dashboard:
+    //   Authentication → URL Configuration → Redirect URLs
+    // Na webu vždy používáme produkční URL, aby Supabase callback fungoval.
+    // Na localhost se po přihlášení přesměruje na produkci (kde uživatel už bude přihlášen).
+    final redirectUrl = kIsWeb
+        ? '${AppConfig.productionUrl}/'
+        : 'io.supabase.soshned://login-callback/';
+
     return await _client.auth.signInWithOAuth(
       OAuthProvider.google,
-      redirectTo: 'io.supabase.soshned://login-callback/',
+      redirectTo: redirectUrl,
+    );
+  }
+
+  /// Přihlášení přes email a heslo
+  Future<AuthResponse> signInWithEmail(String email, String password) async {
+    return await _client.auth.signInWithPassword(
+      email: email,
+      password: password,
+    );
+  }
+
+  /// Registrace přes email a heslo
+  Future<AuthResponse> signUpWithEmail(String email, String password) async {
+    return await _client.auth.signUp(
+      email: email,
+      password: password,
     );
   }
 

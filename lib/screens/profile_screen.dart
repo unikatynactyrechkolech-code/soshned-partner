@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/auth_provider.dart';
-import '../providers/theme_provider.dart';
-import '../services/supabase_service.dart';
 
 /// Profil partnera — zobrazí info, statistiky, hodnocení.
 class ProfileScreen extends ConsumerWidget {

@@ -21,7 +21,6 @@ final currentUserProvider = Provider<User?>((ref) {
 // ═══════════════════════════════════════════════════════════════════
 
 final partnerProfileProvider = FutureProvider<Partner?>((ref) async {
-  // Automaticky se refreshne když se změní auth state
   ref.watch(authStateProvider);
   return await SupabaseService.instance.getMyProfile();
 });

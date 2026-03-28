@@ -16,17 +16,28 @@ class AppConfig {
 
   // ── Google Sign-In ────────────────────────────────────────────────
   // Web client ID z Google Cloud Console (pro Supabase OAuth)
-  static const googleWebClientId = 'YOUR_GOOGLE_WEB_CLIENT_ID';
+  // Předávej přes --dart-define nebo nastav v .env
+  static const googleWebClientId = String.fromEnvironment(
+    'GOOGLE_WEB_CLIENT_ID',
+    defaultValue: '',
+  );
+  static const googleClientSecret = String.fromEnvironment(
+    'GOOGLE_CLIENT_SECRET',
+    defaultValue: '',
+  );
   // iOS client ID (pokud targetuješ iOS)
-  static const googleIosClientId = 'YOUR_GOOGLE_IOS_CLIENT_ID';
+  static const googleIosClientId = '';
 
   // ── Mapbox ────────────────────────────────────────────────────────
-  // Token se načítá z .env nebo --dart-define při buildu:
-  // flutter run --dart-define=MAPBOX_TOKEN=pk.xxx
+  // Token – předávej přes --dart-define nebo nastav v .env
   static const mapboxToken = String.fromEnvironment(
     'MAPBOX_TOKEN',
     defaultValue: '',
   );
+
+  // ── Production URL ─────────────────────────────────────────────────
+  /// URL nasazené aplikace na Vercel (pro OAuth redirect)
+  static const productionUrl = 'https://web-kappa-lake-15.vercel.app';
 
   // ── App Meta ──────────────────────────────────────────────────────
   static const appName = 'SOS HNED Partner';

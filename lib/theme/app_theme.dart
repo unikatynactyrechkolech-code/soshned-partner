@@ -40,10 +40,10 @@ class AppTheme {
         fontFamily: _fontFamily,
         fontSize: 18,
         fontWeight: FontWeight.w800,
-        color: Color(0xFF111827),
+        color: const Color(0xFF111827),
       ),
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: Colors.white,
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -135,12 +135,12 @@ class AppTheme {
         color: Colors.white,
       ),
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: const Color(0xFF0C0C14),
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Colors.white.withOpacity(0.06), width: 1),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 1),
       ),
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
