@@ -63,6 +63,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
   // Map style: terén, satelit, prohlídka, doprava
   String _mapStyle = 'prohlidka'; // default = streets
   bool _showStylePicker = false;
+  bool _is3D = false; // pseudo-3D toggle (rotation)
 
   String get _currentTileUrl {
     switch (_mapStyle) {
@@ -667,15 +668,17 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 _MapFab(
                   dark: effectiveDark,
                   icon: Icons.threed_rotation,
-                  label: '2D',
+                  label: _is3D ? '3D' : '2D',
+                  active: _is3D,
                   onTap: () {
-                    // flutter_map doesn't support pitch/3D, just a visual match
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('3D zobrazení bude dostupné v příští verzi'),
-                        duration: Duration(seconds: 2),
-                      ),
-                    );
+                    setState(() {
+                      _is3D = !_is3D;
+                      if (_is3D) {
+                        _mapController.rotate(45);
+                      } else {
+                        _mapController.rotate(0);
+                      }
+                    });
                   },
                 ),
 
