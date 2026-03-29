@@ -13,6 +13,11 @@ import '../screens/request_detail_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/history_screen.dart';
+import '../screens/messages_screen.dart';
+import '../screens/edit_profile_screen.dart';
+import '../screens/privacy_screen.dart';
+import '../screens/about_screen.dart';
+import '../screens/terms_screen.dart';
 
 /// Notifier that triggers GoRouter refresh when auth/profile state changes
 class _RouterRefreshNotifier extends ChangeNotifier {
@@ -94,6 +99,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const MapScreen(),
           ),
           GoRoute(
+            path: '/messages',
+            builder: (context, state) => const MessagesScreen(),
+          ),
+          GoRoute(
             path: '/history',
             builder: (context, state) => const HistoryScreen(),
           ),
@@ -116,39 +125,111 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return RequestDetailScreen(requestId: id);
         },
       ),
+
+      // ── Edit Profile (full screen) ────────────────────────────
+      GoRoute(
+        path: '/edit-profile',
+        builder: (context, state) => const EditProfileScreen(),
+      ),
+
+      // ── Privacy ───────────────────────────────────────────────
+      GoRoute(
+        path: '/privacy',
+        builder: (context, state) => const PrivacyScreen(),
+      ),
+
+      // ── About ─────────────────────────────────────────────────
+      GoRoute(
+        path: '/about',
+        builder: (context, state) => const AboutScreen(),
+      ),
+
+      // ── Terms ─────────────────────────────────────────────────
+      GoRoute(
+        path: '/terms',
+        builder: (context, state) => const TermsScreen(),
+      ),
     ],
   );
 });
 
-/// Shell s bottom navigation barem
+/// Shell s Instagram-style bottom navigation barem
 class MainShell extends StatelessWidget {
   final Widget child;
   const MainShell({super.key, required this.child});
 
+  // (path, outlinedIcon, filledIcon, label)
   static const _tabs = [
-    ('/', Icons.dashboard_rounded, 'Dashboard'),
-    ('/map', Icons.map_rounded, 'Mapa'),
-    ('/history', Icons.history_rounded, 'Historie'),
-    ('/profile', Icons.person_rounded, 'Profil'),
-    ('/settings', Icons.settings_rounded, 'Nastavení'),
+    ('/', Icons.home_outlined, Icons.home_rounded, 'Domů'),
+    ('/map', Icons.map_outlined, Icons.map_rounded, 'Mapa'),
+    ('/messages', Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded, 'Zprávy'),
+    ('/history', Icons.history_outlined, Icons.history_rounded, 'Historie'),
+    ('/profile', Icons.person_outline_rounded, Icons.person_rounded, 'Profil'),
   ];
 
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
-    final currentIndex = _tabs.indexWhere((t) => t.$1 == location).clamp(0, 4);
+    final currentIndex = _tabs.indexWhere((t) => t.$1 == location).clamp(0, _tabs.length - 1);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       body: child,
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: currentIndex,
-        onTap: (i) => context.go(_tabs[i].$1),
-        items: _tabs
-            .map((t) => BottomNavigationBarItem(
-                  icon: Icon(t.$2),
-                  label: t.$3,
-                ))
-            .toList(),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF0a0a0a) : Colors.white,
+          border: Border(
+            top: BorderSide(
+              color: isDark ? Colors.white.withOpacity(0.08) : Colors.grey[200]!,
+              width: 0.5,
+            ),
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: List.generate(_tabs.length, (i) {
+                final tab = _tabs[i];
+                final isActive = i == currentIndex;
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () => context.go(tab.$1),
+                    behavior: HitTestBehavior.opaque,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isActive ? tab.$3 : tab.$2,
+                            size: 26,
+                            color: isActive
+                                ? (isDark ? Colors.white : const Color(0xFF111827))
+                                : (isDark ? Colors.white38 : Colors.grey[400]),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            tab.$4,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
+                              color: isActive
+                                  ? (isDark ? Colors.white : const Color(0xFF111827))
+                                  : (isDark ? Colors.white38 : Colors.grey[400]),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ),
+          ),
+        ),
       ),
     );
   }

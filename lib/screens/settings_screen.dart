@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../providers/theme_provider.dart';
 import '../services/supabase_service.dart';
@@ -75,9 +76,7 @@ class SettingsScreen extends ConsumerWidget {
             title: 'Upravit profil',
             subtitle: 'Jméno, telefon, kategorie',
             isDark: isDark,
-            onTap: () {
-              // TODO: Navigate to edit profile
-            },
+            onTap: () => context.push('/edit-profile'),
           ),
           _SettingsTile(
             icon: Icons.shield_rounded,
@@ -85,7 +84,7 @@ class SettingsScreen extends ConsumerWidget {
             title: 'Soukromí a zabezpečení',
             subtitle: 'Správa oprávnění',
             isDark: isDark,
-            onTap: () {},
+            onTap: () => context.push('/privacy'),
           ),
           const SizedBox(height: 20),
 
@@ -98,6 +97,7 @@ class SettingsScreen extends ConsumerWidget {
             title: 'SOS HNED Partner',
             subtitle: 'Verze 1.0.0 · © 2026 SOS HNED s.r.o.',
             isDark: isDark,
+            onTap: () => context.push('/about'),
           ),
           _SettingsTile(
             icon: Icons.description_rounded,
@@ -105,7 +105,7 @@ class SettingsScreen extends ConsumerWidget {
             title: 'Podmínky služby',
             subtitle: 'Právní dokumenty',
             isDark: isDark,
-            onTap: () {},
+            onTap: () => context.push('/terms'),
           ),
           const SizedBox(height: 24),
 

@@ -669,54 +669,6 @@ class _MapScreenState extends ConsumerState<MapScreen>
 
                 const SizedBox(height: 10),
 
-                // 2D / 3D toggle — switches to satellite for "3D feel"
-                GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _is3D = !_is3D;
-                      if (_is3D) {
-                        _mapStyle = 'satelit';
-                      } else {
-                        _mapStyle = 'prohlidka';
-                      }
-                    });
-                  },
-                  child: Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: _is3D
-                          ? const Color(0xFF3B82F6).withOpacity(0.2)
-                          : (effectiveDark ? Colors.black.withOpacity(0.55) : Colors.white.withOpacity(0.95)),
-                      borderRadius: BorderRadius.circular(14),
-                      boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.18), blurRadius: 12, offset: const Offset(0, 3)),
-                      ],
-                      border: Border.all(
-                        color: _is3D
-                            ? const Color(0xFF3B82F6).withOpacity(0.4)
-                            : (effectiveDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.06)),
-                        width: _is3D ? 2 : 1,
-                      ),
-                    ),
-                    child: Center(
-                      child: Text(
-                        _is3D ? '3D' : '2D',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: -0.5,
-                          color: _is3D
-                              ? const Color(0xFF60A5FA)
-                              : (effectiveDark ? Colors.white.withOpacity(0.85) : Colors.grey[800]),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 10),
-
                 // My location
                 if (_myPosition != null)
                   GestureDetector(
@@ -773,7 +725,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
           // ── STYLE PICKER POPOVER ──────────────────────────────────
           if (_showStylePicker)
             Positioned(
-              top: MediaQuery.of(context).padding.top + 70 + 58,
+              top: MediaQuery.of(context).padding.top + 70 + 0,
               right: 14,
               child: _StylePickerPopover(
                 dark: effectiveDark,
@@ -1627,7 +1579,7 @@ class _StylePickerPopover extends StatelessWidget {
 
   static const _styles = [
     {'id': 'teren', 'label': 'Terén', 'desc': 'Výšky a příroda', 'icon': Icons.terrain_rounded},
-    {'id': 'satelit', 'label': 'Satelit', 'desc': 'Družicové snímky', 'icon': Icons.satellite_alt_rounded},
+    {'id': 'satelit', 'label': 'Satelit', 'desc': 'Družicové snímky', 'icon': Icons.satellite_rounded},
     {'id': 'prohlidka', 'label': 'Prohlídka', 'desc': 'Ulice a POI', 'icon': Icons.map_rounded},
     {'id': 'doprava', 'label': 'Doprava', 'desc': 'Navigační styl', 'icon': Icons.directions_car_rounded},
   ];
