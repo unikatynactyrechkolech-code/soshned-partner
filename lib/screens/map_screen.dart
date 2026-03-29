@@ -632,30 +632,51 @@ class _MapScreenState extends ConsumerState<MapScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Globe button (style picker)
+                // Globe button (style picker) — matches Next.js w-10 h-10 rounded-xl
                 GestureDetector(
                   onTap: () => setState(() => _showStylePicker = !_showStylePicker),
                   child: Container(
-                    padding: const EdgeInsets.all(10),
+                    width: 40,
+                    height: 40,
                     decoration: BoxDecoration(
                       color: _showStylePicker
                           ? (effectiveDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade900.withOpacity(0.2))
-                          : (effectiveDark ? Colors.black.withOpacity(0.6) : Colors.white.withOpacity(0.9)),
-                      borderRadius: BorderRadius.circular(14),
+                          : (effectiveDark ? Colors.black.withOpacity(0.5) : Colors.white.withOpacity(0.8)),
+                      borderRadius: BorderRadius.circular(12),
                       boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 12),
+                        BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 10, offset: const Offset(0, 2)),
                       ],
                       border: Border.all(
                         color: _showStylePicker
                             ? (effectiveDark ? Colors.white.withOpacity(0.3) : Colors.grey.shade900.withOpacity(0.3))
-                            : (effectiveDark ? Colors.white.withOpacity(0.06) : Colors.grey.withOpacity(0.15)),
+                            : (effectiveDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08)),
                         width: _showStylePicker ? 2 : 1,
                       ),
                     ),
-                    child: Icon(Icons.public_rounded,
-                        size: 20,
-                        color: effectiveDark ? Colors.white70 : Colors.grey[700]),
+                    child: Center(
+                      child: Icon(Icons.public_rounded,
+                          size: 18,
+                          color: effectiveDark ? Colors.white.withOpacity(0.9) : Colors.grey[700]),
+                    ),
                   ),
+                ),
+
+                const SizedBox(height: 8),
+
+                // 2D / 3D toggle — matches Next.js style
+                _MapFab(
+                  dark: effectiveDark,
+                  icon: Icons.threed_rotation,
+                  label: '2D',
+                  onTap: () {
+                    // flutter_map doesn't support pitch/3D, just a visual match
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('3D zobrazení bude dostupné v příští verzi'),
+                        duration: Duration(seconds: 2),
+                      ),
+                    );
+                  },
                 ),
 
                 const SizedBox(height: 8),
@@ -1393,11 +1414,15 @@ class _MapFab extends StatelessWidget {
   final bool dark;
   final IconData icon;
   final VoidCallback onTap;
+  final bool active;
+  final String? label;
 
   const _MapFab({
     required this.dark,
     required this.icon,
     required this.onTap,
+    this.active = false,
+    this.label,
   });
 
   @override
@@ -1405,25 +1430,49 @@ class _MapFab extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(10),
+        width: 40,
+        height: 40,
         decoration: BoxDecoration(
-          color: dark
-              ? Colors.black.withOpacity(0.6)
-              : Colors.white.withOpacity(0.9),
-          borderRadius: BorderRadius.circular(14),
+          color: active
+              ? const Color(0xFF3B82F6).withOpacity(0.2)
+              : dark
+                  ? Colors.black.withOpacity(0.5)
+                  : Colors.white.withOpacity(0.8),
+          borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withOpacity(0.12), blurRadius: 12),
+                color: Colors.black.withOpacity(0.15), blurRadius: 10, offset: const Offset(0, 2)),
           ],
           border: Border.all(
-            color: dark
-                ? Colors.white.withOpacity(0.06)
-                : Colors.grey.withOpacity(0.15),
+            color: active
+                ? const Color(0xFF3B82F6).withOpacity(0.3)
+                : dark
+                    ? Colors.white.withOpacity(0.12)
+                    : Colors.black.withOpacity(0.08),
+            width: active ? 2 : 1,
           ),
         ),
-        child: Icon(icon,
-            size: 20,
-            color: dark ? Colors.white70 : Colors.grey[700]),
+        child: Center(
+          child: label != null
+              ? Text(
+                  label!,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.3,
+                    color: active
+                        ? const Color(0xFF60A5FA)
+                        : dark
+                            ? Colors.white70
+                            : Colors.grey[700],
+                  ),
+                )
+              : Icon(icon,
+                  size: 18,
+                  color: active
+                      ? const Color(0xFF60A5FA)
+                      : dark ? Colors.white70 : Colors.grey[700]),
+        ),
       ),
     );
   }

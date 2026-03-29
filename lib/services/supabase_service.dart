@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/models.dart';
@@ -321,5 +321,64 @@ class SupabaseService {
   /// Odpoj realtime channel
   void unsubscribeChannel(RealtimeChannel channel) {
     _client.removeChannel(channel);
+  }
+
+  // ── CHAT / MESSAGES ───────────────────────────────────────────────
+
+  /// Načti všechny zprávy pro daný SOS request
+  Future<List<Map<String, dynamic>>> getMessages(String sosRequestId) async {
+    try {
+      final data = await _client
+          .from('messages')
+          .select()
+          .eq('sos_request_id', sosRequestId)
+          .order('created_at', ascending: true);
+      return List<Map<String, dynamic>>.from(data);
+    } catch (e) {
+      debugPrint('Error loading messages: $e');
+      return [];
+    }
+  }
+
+  /// Odešli zprávu
+  Future<Map<String, dynamic>?> sendMessage({
+    required String sosRequestId,
+    required String senderType,
+    required String senderId,
+    required String text,
+  }) async {
+    try {
+      final data = await _client.from('messages').insert({
+        'sos_request_id': sosRequestId,
+        'sender_type': senderType,
+        'sender_id': senderId,
+        'text': text,
+      }).select().single();
+      return data;
+    } catch (e) {
+      debugPrint('Error sending message: $e');
+      return null;
+    }
+  }
+
+  /// Realtime odběr zpráv pro SOS request
+  RealtimeChannel subscribeMessages({
+    required String sosRequestId,
+    required void Function(Map<String, dynamic>) onMessage,
+  }) {
+    return _client
+        .channel('messages-$sosRequestId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'messages',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'sos_request_id',
+            value: sosRequestId,
+          ),
+          callback: (payload) => onMessage(payload.newRecord),
+        )
+        .subscribe();
   }
 }

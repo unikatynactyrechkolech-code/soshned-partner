@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/models.dart';
 import '../services/supabase_service.dart';
 import '../widgets/status_badge.dart';
 
-/// Detail SOS požadavku — zobrazí mapu, info o zákazníkovi,
-/// akce (přijmout, na cestě, dokončit), kontakt.
+/// Detail SOS požadavku — zobrazí info o zákazníkovi,
+/// akce (přijmout, na cestě, dokončit), kontakt a **chat v reálném čase**.
 class RequestDetailScreen extends ConsumerStatefulWidget {
   final String requestId;
   const RequestDetailScreen({super.key, required this.requestId});
@@ -23,16 +24,85 @@ class _RequestDetailScreenState extends ConsumerState<RequestDetailScreen> {
   bool _loading = true;
   bool _actionLoading = false;
 
+  // Chat state
+  final List<Map<String, dynamic>> _messages = [];
+  final TextEditingController _chatController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  RealtimeChannel? _chatChannel;
+  bool _chatLoading = true;
+
   @override
   void initState() {
     super.initState();
     _loadRequest();
+    _loadMessages();
+  }
+
+  @override
+  void dispose() {
+    _chatController.dispose();
+    _scrollController.dispose();
+    if (_chatChannel != null) {
+      SupabaseService.instance.unsubscribeChannel(_chatChannel!);
+    }
+    super.dispose();
   }
 
   Future<void> _loadRequest() async {
-    // V reálu bychom měli single fetch by ID, ale pro teď načteme z pending/active
-    // Pro demo: mock request
+    // V reálu bychom měli single fetch by ID
     setState(() => _loading = false);
+  }
+
+  Future<void> _loadMessages() async {
+    final msgs = await SupabaseService.instance.getMessages(widget.requestId);
+    if (mounted) {
+      setState(() {
+        _messages.clear();
+        _messages.addAll(msgs);
+        _chatLoading = false;
+      });
+      _scrollToBottom();
+    }
+
+    // Subscribe to new messages
+    _chatChannel = SupabaseService.instance.subscribeMessages(
+      sosRequestId: widget.requestId,
+      onMessage: (msg) {
+        if (mounted) {
+          setState(() => _messages.add(msg));
+          _scrollToBottom();
+        }
+      },
+    );
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _chatController.text.trim();
+    if (text.isEmpty) return;
+
+    _chatController.clear();
+
+    // Get current user id (partner)
+    final userId = Supabase.instance.client.auth.currentUser?.id ?? 'partner-anon';
+
+    await SupabaseService.instance.sendMessage(
+      sosRequestId: widget.requestId,
+      senderType: 'partner',
+      senderId: userId,
+      text: text,
+    );
   }
 
   Future<void> _updateStatus(SosStatus newStatus) async {
@@ -43,8 +113,7 @@ class _RequestDetailScreenState extends ConsumerState<RequestDetailScreen> {
       SosRequest updated;
       switch (newStatus) {
         case SosStatus.inProgress:
-          updated =
-              await SupabaseService.instance.startRequest(_request!.id);
+          updated = await SupabaseService.instance.startRequest(_request!.id);
           break;
         case SosStatus.completed:
           updated =
@@ -94,238 +163,348 @@ class _RequestDetailScreenState extends ConsumerState<RequestDetailScreen> {
           onPressed: () => context.pop(),
         ),
         title: const Text('Detail požadavku'),
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _request == null
-              ? _buildPlaceholder(theme, isDark)
-              : _buildDetail(theme, isDark),
-    );
-  }
-
-  Widget _buildPlaceholder(ThemeData theme, bool isDark) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.receipt_long_rounded,
-              size: 64,
-              color: isDark ? Colors.white24 : Colors.grey[300],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Detail požadavku',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'ID: ${widget.requestId}\n\n'
-              'Tato obrazovka zobrazí kompletní detail\n'
-              'SOS požadavku včetně mapy, kontaktu\n'
-              'na zákazníka a akčních tlačítek.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: isDark ? Colors.white38 : Colors.grey[500],
-                height: 1.5,
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Placeholder action buttons
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {},
-                icon: const Icon(Icons.navigation_rounded, size: 18),
-                label: const Text('Navigovat k zákazníkovi'),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  final uri = Uri(scheme: 'tel', path: '+420777111222');
-                  if (await canLaunchUrl(uri)) await launchUrl(uri);
-                },
-                icon: const Icon(Icons.phone_rounded, size: 18),
-                label: const Text('Zavolat zákazníkovi'),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () => context.pop(),
-                icon: const Icon(Icons.check_circle_rounded, size: 18),
-                label: const Text('Dokončit výjezd'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF22C55E),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDetail(ThemeData theme, bool isDark) {
-    final r = _request!;
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        // Map placeholder
-        Container(
-          height: 200,
-          decoration: BoxDecoration(
-            color: isDark ? Colors.white.withOpacity(0.05) : Colors.grey[100],
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color:
-                  isDark ? Colors.white.withOpacity(0.08) : Colors.grey[200]!,
-            ),
-          ),
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+        actions: [
+          // Online indicator
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.map_rounded,
-                    size: 40,
-                    color: isDark ? Colors.white24 : Colors.grey[400]),
-                const SizedBox(height: 8),
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF22C55E),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF22C55E).withOpacity(0.4),
+                        blurRadius: 6,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
                 Text(
-                  '📍 ${r.lat.toStringAsFixed(4)}, ${r.lng.toStringAsFixed(4)}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: isDark ? Colors.white38 : Colors.grey[500],
-                    fontWeight: FontWeight.w600,
+                  'Online',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? Colors.white54 : Colors.grey[600],
                   ),
                 ),
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 16),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Info section (collapsed)
+          _buildInfoHeader(theme, isDark),
 
-        // Info card
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: isDark ? Colors.white.withOpacity(0.03) : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color:
-                  isDark ? Colors.white.withOpacity(0.06) : Colors.grey[200]!,
-            ),
+          // Chat messages
+          Expanded(
+            child: _chatLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _messages.isEmpty
+                    ? _buildEmptyChat(isDark)
+                    : ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                        itemCount: _messages.length,
+                        itemBuilder: (context, index) =>
+                            _buildMessageBubble(_messages[index], isDark),
+                      ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+
+          // Chat input
+          _buildChatInput(isDark),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoHeader(ThemeData theme, bool isDark) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.04) : Colors.grey[50],
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.06) : Colors.grey[200]!,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  Text(
-                    r.kategorieLabel,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const Spacer(),
-                  StatusBadge(
-                    label: r.status.label,
-                    color: _statusColor(r.status),
-                    isActive: r.status.isActive,
-                  ),
-                ],
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF3B82F6).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.emergency_rounded,
+                    size: 20, color: Color(0xFF3B82F6)),
               ),
-              if (r.adresa != null) ...[
-                const SizedBox(height: 8),
-                Row(
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.location_on_rounded,
-                        size: 14,
-                        color: isDark ? Colors.white38 : Colors.grey[500]),
-                    const SizedBox(width: 6),
                     Text(
-                      r.adresa!,
-                      style: theme.textTheme.bodySmall?.copyWith(
+                      'SOS Požadavek',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: isDark ? Colors.white : Colors.grey[900],
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'ID: ${widget.requestId.substring(0, 8)}…',
+                      style: TextStyle(
+                        fontSize: 11,
                         color: isDark ? Colors.white38 : Colors.grey[500],
                       ),
                     ),
                   ],
                 ),
-              ],
-              if (r.popis != null) ...[
-                const SizedBox(height: 12),
-                Text(
-                  r.popis!,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: isDark ? Colors.white54 : Colors.grey[700],
-                    height: 1.4,
+              ),
+              // Action buttons
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _ActionChip(
+                    icon: Icons.phone_rounded,
+                    color: const Color(0xFF22C55E),
+                    isDark: isDark,
+                    onTap: () async {
+                      final uri = Uri(scheme: 'tel', path: '+420777111222');
+                      if (await canLaunchUrl(uri)) await launchUrl(uri);
+                    },
                   ),
-                ),
-              ],
-              const SizedBox(height: 12),
-              Text(
-                r.timeAgo,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: isDark ? Colors.white24 : Colors.grey[400],
-                ),
+                  const SizedBox(width: 6),
+                  _ActionChip(
+                    icon: Icons.navigation_rounded,
+                    color: const Color(0xFF3B82F6),
+                    isDark: isDark,
+                    onTap: () {},
+                  ),
+                ],
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
 
-        // Actions
-        if (r.status == SosStatus.accepted)
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton.icon(
-              onPressed:
-                  _actionLoading ? null : () => _updateStatus(SosStatus.inProgress),
-              icon: _actionLoading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.navigation_rounded, size: 18),
-              label: const Text('Vyrazit na cestu'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF3B82F6),
+  Widget _buildEmptyChat(bool isDark) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.chat_bubble_outline_rounded,
+            size: 48,
+            color: isDark ? Colors.white12 : Colors.grey[300],
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Zatím žádné zprávy',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white24 : Colors.grey[400],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Napište zákazníkovi první zprávu',
+            style: TextStyle(
+              fontSize: 12,
+              color: isDark ? Colors.white12 : Colors.grey[350],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessageBubble(Map<String, dynamic> msg, bool isDark) {
+    final isMe = msg['sender_type'] == 'partner';
+    final text = msg['text'] ?? '';
+    final createdAt = msg['created_at'] != null
+        ? DateTime.tryParse(msg['created_at'].toString())
+        : null;
+    final timeStr = createdAt != null
+        ? '${createdAt.hour.toString().padLeft(2, '0')}:${createdAt.minute.toString().padLeft(2, '0')}'
+        : '';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisAlignment:
+            isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+        children: [
+          if (!isMe) ...[
+            CircleAvatar(
+              radius: 14,
+              backgroundColor: isDark
+                  ? Colors.white.withOpacity(0.08)
+                  : Colors.grey[200],
+              child: Icon(Icons.person_rounded,
+                  size: 16,
+                  color: isDark ? Colors.white38 : Colors.grey[500]),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: isMe
+                    ? const Color(0xFF3B82F6)
+                    : isDark
+                        ? Colors.white.withOpacity(0.08)
+                        : Colors.grey[100],
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(18),
+                  topRight: const Radius.circular(18),
+                  bottomLeft: Radius.circular(isMe ? 18 : 4),
+                  bottomRight: Radius.circular(isMe ? 4 : 18),
+                ),
+                border: isMe
+                    ? null
+                    : Border.all(
+                        color: isDark
+                            ? Colors.white.withOpacity(0.06)
+                            : Colors.grey[200]!,
+                      ),
+              ),
+              child: Column(
+                crossAxisAlignment:
+                    isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    text,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isMe
+                          ? Colors.white
+                          : isDark
+                              ? Colors.white.withOpacity(0.8)
+                              : Colors.grey[800],
+                      height: 1.3,
+                    ),
+                  ),
+                  if (timeStr.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      timeStr,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: isMe
+                            ? Colors.white.withOpacity(0.5)
+                            : isDark
+                                ? Colors.white24
+                                : Colors.grey[400],
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ),
-        if (r.status == SosStatus.inProgress)
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton.icon(
-              onPressed:
-                  _actionLoading ? null : () => _updateStatus(SosStatus.completed),
-              icon: _actionLoading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.check_circle_rounded, size: 18),
-              label: const Text('Dokončit výjezd'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF22C55E),
+          if (isMe) ...[
+            const SizedBox(width: 8),
+            CircleAvatar(
+              radius: 14,
+              backgroundColor: const Color(0xFF3B82F6).withOpacity(0.15),
+              child: const Icon(Icons.handyman_rounded,
+                  size: 14, color: Color(0xFF3B82F6)),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChatInput(bool isDark) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+          16, 8, 16, MediaQuery.of(context).padding.bottom + 12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0D0D18) : Colors.white,
+        border: Border(
+          top: BorderSide(
+            color: isDark ? Colors.white.withOpacity(0.06) : Colors.grey[200]!,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withOpacity(0.04)
+                    : Colors.grey[50],
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: isDark
+                      ? Colors.white.withOpacity(0.08)
+                      : Colors.grey[200]!,
+                ),
+              ),
+              child: TextField(
+                controller: _chatController,
+                onSubmitted: (_) => _sendMessage(),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark ? Colors.white : Colors.grey[900],
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Napište zprávu…',
+                  hintStyle: TextStyle(
+                    color: isDark ? Colors.white24 : Colors.grey[400],
+                    fontSize: 14,
+                  ),
+                  border: InputBorder.none,
+                  contentPadding:
+                      const EdgeInsets.symmetric(vertical: 12),
+                ),
               ),
             ),
           ),
-      ],
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: _sendMessage,
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: const Color(0xFF3B82F6),
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF3B82F6).withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: const Center(
+                child: Icon(Icons.send_rounded, size: 20, color: Colors.white),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -342,5 +521,38 @@ class _RequestDetailScreenState extends ConsumerState<RequestDetailScreen> {
       case SosStatus.cancelled:
         return Colors.grey;
     }
+  }
+}
+
+class _ActionChip extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _ActionChip({
+    required this.icon,
+    required this.color,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Center(
+          child: Icon(icon, size: 16, color: color),
+        ),
+      ),
+    );
   }
 }
