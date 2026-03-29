@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../providers/auth_provider.dart';
 
@@ -16,6 +17,18 @@ class ProfileScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profil'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_outlined, size: 22),
+            onPressed: () => context.push('/edit-profile'),
+            tooltip: 'Upravit profil',
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, size: 22),
+            onPressed: () => context.push('/settings'),
+            tooltip: 'Nastavení',
+          ),
+        ],
       ),
       body: partnerAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),

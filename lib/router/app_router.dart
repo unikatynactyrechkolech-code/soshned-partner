@@ -160,11 +160,11 @@ class MainShell extends StatelessWidget {
 
   // (path, outlinedIcon, filledIcon, label)
   static const _tabs = [
-    ('/', Icons.home_outlined, Icons.home_rounded, 'Domů'),
-    ('/map', Icons.map_outlined, Icons.map_rounded, 'Mapa'),
-    ('/messages', Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded, 'Zprávy'),
-    ('/history', Icons.history_outlined, Icons.history_rounded, 'Historie'),
-    ('/profile', Icons.person_outline_rounded, Icons.person_rounded, 'Profil'),
+    ('/', Icons.home_outlined, Icons.home, 'Domů'),
+    ('/map', Icons.explore_outlined, Icons.explore, 'Mapa'),
+    ('/messages', Icons.chat_bubble_outline, Icons.chat_bubble, 'Zprávy'),
+    ('/history', Icons.schedule_outlined, Icons.schedule, 'Historie'),
+    ('/profile', Icons.person_outline, Icons.person, 'Profil'),
   ];
 
   @override

@@ -1578,10 +1578,10 @@ class _StylePickerPopover extends StatelessWidget {
   });
 
   static const _styles = [
-    {'id': 'teren', 'label': 'Terén', 'desc': 'Výšky a příroda', 'icon': Icons.terrain_rounded},
-    {'id': 'satelit', 'label': 'Satelit', 'desc': 'Družicové snímky', 'icon': Icons.satellite_rounded},
-    {'id': 'prohlidka', 'label': 'Prohlídka', 'desc': 'Ulice a POI', 'icon': Icons.map_rounded},
-    {'id': 'doprava', 'label': 'Doprava', 'desc': 'Navigační styl', 'icon': Icons.directions_car_rounded},
+    {'id': 'teren', 'label': 'Terén', 'desc': 'Výšky a příroda', 'icon': Icons.terrain, 'emoji': '⛰️'},
+    {'id': 'satelit', 'label': 'Satelit', 'desc': 'Družicové snímky', 'icon': Icons.public, 'emoji': '🛰️'},
+    {'id': 'prohlidka', 'label': 'Prohlídka', 'desc': 'Ulice a POI', 'icon': Icons.map, 'emoji': '🗺️'},
+    {'id': 'doprava', 'label': 'Doprava', 'desc': 'Navigační styl', 'icon': Icons.directions_car, 'emoji': '🚗'},
   ];
 
   @override
@@ -1655,12 +1655,11 @@ class _StylePickerPopover extends StatelessWidget {
                             ? Border.all(color: const Color(0xFF3B82F6).withOpacity(0.3))
                             : null,
                       ),
-                      child: Icon(
-                        s['icon'] as IconData,
-                        size: 16,
-                        color: active
-                            ? const Color(0xFF60A5FA)
-                            : (dark ? Colors.white.withOpacity(0.5) : Colors.grey[500]),
+                      child: Center(
+                        child: Text(
+                          s['emoji'] as String,
+                          style: const TextStyle(fontSize: 16),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),

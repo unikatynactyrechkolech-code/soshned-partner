@@ -1,9 +1,28 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'theme/app_theme.dart';
 import 'router/app_router.dart';
 import 'providers/theme_provider.dart';
+
+/// Smooth scroll behavior — lepší výkon při scrollu (drag + mouse + trackpad)
+class _SmoothScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.trackpad,
+    PointerDeviceKind.stylus,
+  };
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return const BouncingScrollPhysics(
+      decelerationRate: ScrollDecelerationRate.fast,
+    );
+  }
+}
 
 class SosPartnerApp extends ConsumerWidget {
   const SosPartnerApp({super.key});
@@ -20,6 +39,7 @@ class SosPartnerApp extends ConsumerWidget {
       darkTheme: AppTheme.dark,
       themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
       routerConfig: router,
+      scrollBehavior: _SmoothScrollBehavior(),
     );
   }
 }
