@@ -18,14 +18,20 @@ class _MapboxStyles {
   static String _url(String styleId) =>
       'https://api.mapbox.com/styles/v1/mapbox/$styleId/tiles/512/{z}/{x}/{y}@2x?access_token=${AppConfig.mapboxToken}';
 
-  /// Premium světlý — Streets v12
-  static String get streets => _url('streets-v12');
-
-  /// Premium tmavý — Navigation Night v1
-  static String get navigationNight => _url('navigation-night-v1');
+  /// Terén (outdoors)
+  static String get terrain => _url('outdoors-v12');
 
   /// Satelit + popisky
-  static String get satelliteStreets => _url('satellite-streets-v12');
+  static String get satellite => _url('satellite-streets-v12');
+
+  /// Prohlídka (streets)
+  static String get streets => _url('streets-v12');
+
+  /// Doprava (navigation)
+  static String get navigation => _url('navigation-day-v1');
+
+  /// Navigation Night (dark mode variant)
+  static String get navigationNight => _url('navigation-night-v1');
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -54,14 +60,24 @@ class _MapScreenState extends ConsumerState<MapScreen>
 
   Timer? _refreshTimer;
 
-  // Map style: 0=auto, 1=streets, 2=night, 3=satellite
-  int _styleIndex = 0;
-  static const _styleIcons = [
-    Icons.brightness_auto_rounded,
-    Icons.map_rounded,
-    Icons.dark_mode_rounded,
-    Icons.satellite_alt_rounded,
-  ];
+  // Map style: terén, satelit, prohlídka, doprava
+  String _mapStyle = 'prohlidka'; // default = streets
+  bool _showStylePicker = false;
+
+  String get _currentTileUrl {
+    switch (_mapStyle) {
+      case 'teren':
+        return _MapboxStyles.terrain;
+      case 'satelit':
+        return _MapboxStyles.satellite;
+      case 'prohlidka':
+        return _MapboxStyles.streets;
+      case 'doprava':
+        return _MapboxStyles.navigation;
+      default:
+        return _MapboxStyles.streets;
+    }
+  }
 
   @override
   void initState() {
@@ -167,7 +183,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
               children: [
                 Icon(Icons.check_circle, color: Colors.white, size: 18),
                 SizedBox(width: 8),
-                Text('📍 Poloha uložena — viditelná na všech mapách'),
+                Text('📍 Sídlo firmy uloženo — viditelná na mapě klientům'),
               ],
             ),
             backgroundColor: const Color(0xFF22C55E),
@@ -198,18 +214,11 @@ class _MapScreenState extends ConsumerState<MapScreen>
   // ── Tile URL ──────────────────────────────────────────────────────
 
   String _getTileUrl(bool isDark) {
-    switch (_styleIndex) {
-      case 1:
-        return _MapboxStyles.streets;
-      case 2:
-        return _MapboxStyles.navigationNight;
-      case 3:
-        return _MapboxStyles.satelliteStreets;
-      default:
-        return isDark
-            ? _MapboxStyles.navigationNight
-            : _MapboxStyles.streets;
+    // Použij vybraný styl, v dark mode fallback na navigation night
+    if (isDark && _mapStyle == 'doprava') {
+      return _MapboxStyles.navigationNight;
     }
+    return _currentTileUrl;
   }
 
   // ═════════════════════════════════════════════════════════════════
@@ -222,9 +231,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
     final isDark = theme.brightness == Brightness.dark;
     final partner = ref.watch(partnerProfileProvider).valueOrNull;
     final tileUrl = _getTileUrl(isDark);
-    final effectiveDark = _styleIndex == 2 ||
-        _styleIndex == 3 ||
-        (_styleIndex == 0 && isDark);
+    final effectiveDark = _mapStyle == 'satelit' || isDark;
 
     return Scaffold(
       body: Stack(
@@ -239,6 +246,10 @@ class _MapScreenState extends ConsumerState<MapScreen>
               maxZoom: 19,
               minZoom: 3,
               onTap: (tapPos, latLng) {
+                if (_showStylePicker) {
+                  setState(() => _showStylePicker = false);
+                  return;
+                }
                 if (_placingPin) {
                   _showSetPositionDialog(latLng);
                 }
@@ -533,7 +544,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'Klepněte kamkoliv na mapu pro umístění vašeho špendlíku.',
+                                'Klepněte kamkoliv na mapu pro umístění sídla vaší firmy.',
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: effectiveDark
@@ -599,8 +610,8 @@ class _MapScreenState extends ConsumerState<MapScreen>
                       const SizedBox(width: 10),
                       Text(
                         _myPosition != null
-                            ? 'Změnit moji polohu'
-                            : 'Nastavit moji polohu',
+                            ? 'Změnit sídlo firmy'
+                            : 'Nastavit sídlo firmy',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 15,
@@ -614,20 +625,42 @@ class _MapScreenState extends ConsumerState<MapScreen>
               ),
             ),
 
-          // ── RIGHT CONTROLS ────────────────────────────────────────
+          // ── RIGHT CONTROLS (Globe + 3D, Apple Maps style) ──────────
           Positioned(
-            bottom: 32,
+            top: MediaQuery.of(context).padding.top + 70,
             right: 14,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _MapFab(
-                  dark: effectiveDark,
-                  icon: _styleIcons[_styleIndex],
-                  onTap: () =>
-                      setState(() => _styleIndex = (_styleIndex + 1) % 4),
+                // Globe button (style picker)
+                GestureDetector(
+                  onTap: () => setState(() => _showStylePicker = !_showStylePicker),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: _showStylePicker
+                          ? (effectiveDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade900.withOpacity(0.2))
+                          : (effectiveDark ? Colors.black.withOpacity(0.6) : Colors.white.withOpacity(0.9)),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 12),
+                      ],
+                      border: Border.all(
+                        color: _showStylePicker
+                            ? (effectiveDark ? Colors.white.withOpacity(0.3) : Colors.grey.shade900.withOpacity(0.3))
+                            : (effectiveDark ? Colors.white.withOpacity(0.06) : Colors.grey.withOpacity(0.15)),
+                        width: _showStylePicker ? 2 : 1,
+                      ),
+                    ),
+                    child: Icon(Icons.public_rounded,
+                        size: 20,
+                        color: effectiveDark ? Colors.white70 : Colors.grey[700]),
+                  ),
                 ),
+
                 const SizedBox(height: 8),
+
+                // My location
                 if (_myPosition != null)
                   _MapFab(
                     dark: effectiveDark,
@@ -635,6 +668,8 @@ class _MapScreenState extends ConsumerState<MapScreen>
                     onTap: () => _mapController.move(_myPosition!, 15),
                   ),
                 const SizedBox(height: 8),
+
+                // Refresh
                 _MapFab(
                   dark: effectiveDark,
                   icon: Icons.refresh_rounded,
@@ -643,6 +678,24 @@ class _MapScreenState extends ConsumerState<MapScreen>
               ],
             ),
           ),
+
+          // ── STYLE PICKER POPOVER ──────────────────────────────────
+          if (_showStylePicker)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 70 + 52,
+              right: 14,
+              child: _StylePickerPopover(
+                dark: effectiveDark,
+                currentStyle: _mapStyle,
+                onStyleSelected: (style) {
+                  setState(() {
+                    _mapStyle = style;
+                    _showStylePicker = false;
+                  });
+                },
+                onClose: () => setState(() => _showStylePicker = false),
+              ),
+            ),
 
           // ── LEGEND (bottom left) ──────────────────────────────────
           Positioned(
@@ -658,7 +711,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 children: [
                   _LegendDot(
                       color: const Color(0xFF3B82F6),
-                      label: 'Moje poloha',
+                      label: 'Moje sídlo',
                       dark: effectiveDark),
                   const SizedBox(height: 5),
                   _LegendDot(
@@ -825,7 +878,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
             ),
             const SizedBox(height: 14),
             Text(
-              'Nastavit polohu zde?',
+              'Nastavit sídlo firmy zde?',
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
@@ -854,7 +907,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
             ),
             const SizedBox(height: 10),
             Text(
-              'Poloha se uloží do databáze a bude viditelná\nzákazníkům v klientské aplikaci.',
+              'Sídlo firmy se uloží do databáze a bude\nviditelné zákazníkům v klientské aplikaci.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,
@@ -1122,7 +1175,7 @@ class _MyPositionMarker extends StatelessWidget {
             borderRadius: BorderRadius.circular(6),
           ),
           child: const Text(
-            'Vy',
+            'Sídlo',
             style: TextStyle(
               fontSize: 8,
               fontWeight: FontWeight.w800,
@@ -1434,6 +1487,154 @@ class _ArrowPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STYLE PICKER POPOVER (Apple Maps style — Globe icon opens this)
+// ═══════════════════════════════════════════════════════════════════════
+
+class _StylePickerPopover extends StatelessWidget {
+  final bool dark;
+  final String currentStyle;
+  final ValueChanged<String> onStyleSelected;
+  final VoidCallback onClose;
+
+  const _StylePickerPopover({
+    required this.dark,
+    required this.currentStyle,
+    required this.onStyleSelected,
+    required this.onClose,
+  });
+
+  static const _styles = [
+    {'id': 'teren', 'label': 'Terén', 'desc': 'Výšky a příroda', 'icon': Icons.terrain_rounded},
+    {'id': 'satelit', 'label': 'Satelit', 'desc': 'Družicové snímky', 'icon': Icons.satellite_alt_rounded},
+    {'id': 'prohlidka', 'label': 'Prohlídka', 'desc': 'Ulice a POI', 'icon': Icons.map_rounded},
+    {'id': 'doprava', 'label': 'Doprava', 'desc': 'Navigační styl', 'icon': Icons.directions_car_rounded},
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 180,
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: dark
+            ? const Color(0xFF1a1a2e).withOpacity(0.95)
+            : Colors.white.withOpacity(0.95),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(dark ? 0.6 : 0.15),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+        border: Border.all(
+          color: dark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
+            child: Text(
+              'Styl mapy',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.2,
+                color: dark ? Colors.white.withOpacity(0.3) : Colors.grey[400],
+              ),
+            ),
+          ),
+          ..._styles.map((s) {
+            final active = currentStyle == s['id'];
+            return GestureDetector(
+              onTap: () => onStyleSelected(s['id'] as String),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                margin: const EdgeInsets.symmetric(vertical: 1),
+                decoration: BoxDecoration(
+                  color: active
+                      ? (dark ? Colors.white.withOpacity(0.12) : const Color(0xFFEFF6FF))
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  border: active
+                      ? Border.all(
+                          color: dark
+                              ? Colors.white.withOpacity(0.15)
+                              : const Color(0xFFBFDBFE),
+                        )
+                      : null,
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: active
+                            ? const Color(0xFF3B82F6).withOpacity(0.2)
+                            : (dark ? Colors.white.withOpacity(0.06) : Colors.grey[100]),
+                        borderRadius: BorderRadius.circular(8),
+                        border: active
+                            ? Border.all(color: const Color(0xFF3B82F6).withOpacity(0.3))
+                            : null,
+                      ),
+                      child: Icon(
+                        s['icon'] as IconData,
+                        size: 16,
+                        color: active
+                            ? const Color(0xFF60A5FA)
+                            : (dark ? Colors.white.withOpacity(0.5) : Colors.grey[500]),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            s['label'] as String,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: active
+                                  ? (dark ? Colors.white : const Color(0xFF2563EB))
+                                  : (dark ? Colors.white.withOpacity(0.6) : Colors.grey[700]),
+                            ),
+                          ),
+                          Text(
+                            s['desc'] as String,
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: dark ? Colors.white.withOpacity(0.25) : Colors.grey[400],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (active)
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF60A5FA),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
 }
 
 Widget _categoryIcon(String kategorie) {
