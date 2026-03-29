@@ -60,23 +60,21 @@ class _MapScreenState extends ConsumerState<MapScreen>
 
   Timer? _refreshTimer;
 
-  // Map style: terén, satelit, prohlídka, doprava
-  String _mapStyle = 'prohlidka'; // default = streets
+  // Map style: provoz, satelit, prohlídka (jako klientská appka)
+  String _mapStyle = 'provoz'; // default = light/dark
   bool _showStylePicker = false;
-  bool _is3D = false; // pseudo-3D toggle (rotation)
 
   String get _currentTileUrl {
+    final effectiveDark = Theme.of(context).brightness == Brightness.dark;
     switch (_mapStyle) {
-      case 'teren':
-        return _MapboxStyles.terrain;
+      case 'provoz':
+        return effectiveDark ? _MapboxStyles.navigationNight : _MapboxStyles.navigation;
       case 'satelit':
         return _MapboxStyles.satellite;
       case 'prohlidka':
         return _MapboxStyles.streets;
-      case 'doprava':
-        return _MapboxStyles.navigation;
       default:
-        return _MapboxStyles.streets;
+        return effectiveDark ? _MapboxStyles.navigationNight : _MapboxStyles.navigation;
     }
   }
 
@@ -725,7 +723,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
           // ── STYLE PICKER POPOVER ──────────────────────────────────
           if (_showStylePicker)
             Positioned(
-              top: MediaQuery.of(context).padding.top + 70 + 0,
+              top: MediaQuery.of(context).padding.top + 70 + 58,
               right: 14,
               child: _StylePickerPopover(
                 dark: effectiveDark,
@@ -1578,10 +1576,9 @@ class _StylePickerPopover extends StatelessWidget {
   });
 
   static const _styles = [
-    {'id': 'teren', 'label': 'Terén', 'desc': 'Výšky a příroda', 'icon': Icons.terrain, 'emoji': '⛰️'},
-    {'id': 'satelit', 'label': 'Satelit', 'desc': 'Družicové snímky', 'icon': Icons.public, 'emoji': '🛰️'},
-    {'id': 'prohlidka', 'label': 'Prohlídka', 'desc': 'Ulice a POI', 'icon': Icons.map, 'emoji': '🗺️'},
-    {'id': 'doprava', 'label': 'Doprava', 'desc': 'Navigační styl', 'icon': Icons.directions_car, 'emoji': '🚗'},
+    {'id': 'provoz', 'label': 'Provoz', 'desc': 'Silnice a ulice', 'icon': Icons.location_on_outlined},
+    {'id': 'satelit', 'label': 'Satelit', 'desc': 'Satelitní snímky', 'icon': Icons.travel_explore_outlined},
+    {'id': 'prohlidka', 'label': 'Prohlídka', 'desc': 'Standardní mapa', 'icon': Icons.visibility_outlined},
   ];
 
   @override
@@ -1656,9 +1653,12 @@ class _StylePickerPopover extends StatelessWidget {
                             : null,
                       ),
                       child: Center(
-                        child: Text(
-                          s['emoji'] as String,
-                          style: const TextStyle(fontSize: 16),
+                        child: Icon(
+                          s['icon'] as IconData,
+                          size: 18,
+                          color: active
+                              ? const Color(0xFF60A5FA)
+                              : (dark ? Colors.white.withOpacity(0.5) : Colors.grey[500]),
                         ),
                       ),
                     ),

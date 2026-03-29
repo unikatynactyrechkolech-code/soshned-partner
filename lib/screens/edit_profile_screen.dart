@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -68,17 +69,24 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       final partner = ref.read(partnerProfileProvider).valueOrNull;
       if (partner == null) throw Exception('Profil nenalezen');
 
-      await SupabaseService.instance.updatePartnerProfile(partner.id, {
+      final updates = <String, dynamic>{
         'jmeno': _jmenoController.text.trim(),
-        'firma': _firmaController.text.trim().isEmpty
-            ? null
-            : _firmaController.text.trim(),
         'telefon': _telefonController.text.trim(),
-        'adresa': _adresaController.text.trim().isEmpty
-            ? null
-            : _adresaController.text.trim(),
         'kategorie': _kategorie,
-      });
+      };
+      // Volitelné pole — přidáme jen pokud nejsou prázdné
+      final firma = _firmaController.text.trim();
+      if (firma.isNotEmpty) {
+        updates['firma'] = firma;
+      }
+      final adresa = _adresaController.text.trim();
+      if (adresa.isNotEmpty) {
+        updates['adresa'] = adresa;
+      }
+
+      debugPrint('Ukládám profil: $updates');
+
+      await SupabaseService.instance.updatePartnerProfile(partner.id, updates);
 
       // Refresh the profile provider
       ref.invalidate(partnerProfileProvider);
