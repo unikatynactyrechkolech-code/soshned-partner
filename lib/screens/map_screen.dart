@@ -256,7 +256,12 @@ class _MapScreenState extends ConsumerState<MapScreen>
                 }
               },
               interactionOptions: const InteractionOptions(
-                flags: InteractiveFlag.all,
+                flags: InteractiveFlag.pinchZoom |
+                    InteractiveFlag.drag |
+                    InteractiveFlag.doubleTapZoom |
+                    InteractiveFlag.scrollWheelZoom |
+                    InteractiveFlag.pinchMove,
+                rotationThreshold: 999999, // effectively disable rotation
               ),
             ),
             children: [
@@ -508,7 +513,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
           // ── PLACING PIN INSTRUCTION ─────────────────────────────────
           if (_placingPin && !_loading)
             Positioned(
-              bottom: 120,
+              bottom: MediaQuery.of(context).padding.bottom + 140,
               left: 20,
               right: 20,
               child: _GlassCard(
@@ -583,7 +588,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
           // ── SET PIN FAB BUTTON ────────────────────────────────────────
           if (!_placingPin && !_loading)
             Positioned(
-              bottom: 32,
+              bottom: MediaQuery.of(context).padding.bottom + 48,
               left: 14,
               right: 80,
               child: GestureDetector(
@@ -633,71 +638,133 @@ class _MapScreenState extends ConsumerState<MapScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Globe button (style picker) — matches Next.js w-10 h-10 rounded-xl
+                // Globe button (style picker) — large clear icon like Next.js
                 GestureDetector(
                   onTap: () => setState(() => _showStylePicker = !_showStylePicker),
                   child: Container(
-                    width: 40,
-                    height: 40,
+                    width: 48,
+                    height: 48,
                     decoration: BoxDecoration(
                       color: _showStylePicker
-                          ? (effectiveDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade900.withOpacity(0.2))
-                          : (effectiveDark ? Colors.black.withOpacity(0.5) : Colors.white.withOpacity(0.8)),
-                      borderRadius: BorderRadius.circular(12),
+                          ? (effectiveDark ? Colors.white.withOpacity(0.2) : Colors.grey.shade200)
+                          : (effectiveDark ? Colors.black.withOpacity(0.55) : Colors.white.withOpacity(0.95)),
+                      borderRadius: BorderRadius.circular(14),
                       boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 10, offset: const Offset(0, 2)),
+                        BoxShadow(color: Colors.black.withOpacity(0.18), blurRadius: 12, offset: const Offset(0, 3)),
                       ],
                       border: Border.all(
                         color: _showStylePicker
-                            ? (effectiveDark ? Colors.white.withOpacity(0.3) : Colors.grey.shade900.withOpacity(0.3))
-                            : (effectiveDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08)),
+                            ? (effectiveDark ? Colors.white.withOpacity(0.35) : Colors.grey.shade400)
+                            : (effectiveDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.06)),
                         width: _showStylePicker ? 2 : 1,
                       ),
                     ),
                     child: Center(
                       child: Icon(Icons.public_rounded,
-                          size: 18,
-                          color: effectiveDark ? Colors.white.withOpacity(0.9) : Colors.grey[700]),
+                          size: 24,
+                          color: effectiveDark ? Colors.white.withOpacity(0.9) : Colors.grey[800]),
                     ),
                   ),
                 ),
 
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
 
-                // 2D / 3D toggle — matches Next.js style
-                _MapFab(
-                  dark: effectiveDark,
-                  icon: Icons.threed_rotation,
-                  label: _is3D ? '3D' : '2D',
-                  active: _is3D,
+                // 2D / 3D toggle — switches to satellite for "3D feel"
+                GestureDetector(
                   onTap: () {
                     setState(() {
                       _is3D = !_is3D;
                       if (_is3D) {
-                        _mapController.rotate(45);
+                        _mapStyle = 'satelit';
                       } else {
-                        _mapController.rotate(0);
+                        _mapStyle = 'prohlidka';
                       }
                     });
                   },
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: _is3D
+                          ? const Color(0xFF3B82F6).withOpacity(0.2)
+                          : (effectiveDark ? Colors.black.withOpacity(0.55) : Colors.white.withOpacity(0.95)),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.18), blurRadius: 12, offset: const Offset(0, 3)),
+                      ],
+                      border: Border.all(
+                        color: _is3D
+                            ? const Color(0xFF3B82F6).withOpacity(0.4)
+                            : (effectiveDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.06)),
+                        width: _is3D ? 2 : 1,
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        _is3D ? '3D' : '2D',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: -0.5,
+                          color: _is3D
+                              ? const Color(0xFF60A5FA)
+                              : (effectiveDark ? Colors.white.withOpacity(0.85) : Colors.grey[800]),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
 
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
 
                 // My location
                 if (_myPosition != null)
-                  _MapFab(
-                    dark: effectiveDark,
-                    icon: Icons.my_location_rounded,
+                  GestureDetector(
                     onTap: () => _mapController.move(_myPosition!, 15),
+                    child: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: effectiveDark ? Colors.black.withOpacity(0.55) : Colors.white.withOpacity(0.95),
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(color: Colors.black.withOpacity(0.18), blurRadius: 12, offset: const Offset(0, 3)),
+                        ],
+                        border: Border.all(
+                          color: effectiveDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.06),
+                        ),
+                      ),
+                      child: Center(
+                        child: Icon(Icons.my_location_rounded,
+                            size: 22,
+                            color: effectiveDark ? Colors.white.withOpacity(0.85) : Colors.grey[800]),
+                      ),
+                    ),
                   ),
-                const SizedBox(height: 8),
+                if (_myPosition != null) const SizedBox(height: 10),
 
                 // Refresh
-                _MapFab(
-                  dark: effectiveDark,
-                  icon: Icons.refresh_rounded,
+                GestureDetector(
                   onTap: _loadMapData,
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: effectiveDark ? Colors.black.withOpacity(0.55) : Colors.white.withOpacity(0.95),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.18), blurRadius: 12, offset: const Offset(0, 3)),
+                      ],
+                      border: Border.all(
+                        color: effectiveDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.06),
+                      ),
+                    ),
+                    child: Center(
+                      child: Icon(Icons.refresh_rounded,
+                          size: 22,
+                          color: effectiveDark ? Colors.white.withOpacity(0.85) : Colors.grey[800]),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -706,7 +773,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
           // ── STYLE PICKER POPOVER ──────────────────────────────────
           if (_showStylePicker)
             Positioned(
-              top: MediaQuery.of(context).padding.top + 70 + 52,
+              top: MediaQuery.of(context).padding.top + 70 + 58,
               right: 14,
               child: _StylePickerPopover(
                 dark: effectiveDark,
@@ -723,7 +790,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
 
           // ── LEGEND (bottom left) ──────────────────────────────────
           Positioned(
-            bottom: 32,
+            bottom: MediaQuery.of(context).padding.bottom + 48,
             left: 14,
             child: _GlassCard(
               dark: effectiveDark,
@@ -755,7 +822,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
           // ── MY INFO CARD ──────────────────────────────────────────
           if (partner != null && !_loading && !_placingPin)
             Positioned(
-              bottom: 140,
+              bottom: MediaQuery.of(context).padding.bottom + 160,
               left: 14,
               right: 80,
               child: _GlassCard(
